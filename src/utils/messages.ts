@@ -1,4 +1,4 @@
-import { type RESTPostAPIChannelMessageJSONBody, MessageFlags, ComponentType, ButtonStyle } from "discord-api-types/v10";
+import { type RESTPostAPIChannelMessageJSONBody, MessageFlags, ComponentType, ButtonStyle, type APIUser } from "discord-api-types/v10";
 import type { HoneypotConfig } from "./db";
 
 export function honeypotWarningMessage(
@@ -26,7 +26,7 @@ export function honeypotWarningMessage(
             components: [
               {
                 type: ComponentType.TextDisplay,
-                content: customText?.replaceAll("{{action:text}}", actionText)
+                content: customText?.replace(/\{\{action(:text)?\}\}/g, actionText)
                   || `## DO NOT SEND MESSAGES IN THIS CHANNEL\n\nThis channel is used to catch spam bots. Any messages sent here will result in **${actionText}**.`
               }
             ],
@@ -80,7 +80,10 @@ export function honeypotUserDMMessage(action: HoneypotConfig["action"], guildNam
             components: [
               {
                 type: ComponentType.TextDisplay,
-                content: customText?.replaceAll("{{action:text}}", actionText).replaceAll("{{server:name}}", guildNameFormatted).replaceAll("{{honeypot:channel:link}}", link)
+                content: customText
+                  ?.replace(/\{\{action(:text)?\}\}/g, actionText)
+                  .replace(/\{\{server:name\}\}/g, guildNameFormatted)
+                  .replace(/\{\{honeypot:channel:link\}\}/g, link)
                   || `## Honeypot Triggered\n\nYou have been **${actionText}** from **${guildNameFormatted}** for sending a message in the [honeypot](${link}) channel.`
               },
               {
@@ -118,12 +121,12 @@ export function logActionMessage(userId: string, honeypotChannelId: string, acti
   return {
     allowed_mentions: {},
     content: customText
-      ?.replaceAll("{{user:ping}}", `<@${userId}>`)
-      .replaceAll("{{user:id}}", `${userId}`)
-      .replaceAll("{{action:text}}", actionText)
-      .replaceAll("{{honeypot:channel:ping}}", `<#${honeypotChannelId}>`)
+      ?.replace(/\{\{user:id\}\}/g, userId)
+      .replace(/\{\{user(:ping|:mention)?\}\}/g, `<@${userId}>`)
+      .replace(/\{\{action(:text)?\}\}/g, actionText)
+      .replace(/\{\{honeypot:channel(:mention|:ping)?\}\}/g, `<#${honeypotChannelId}>`)
       || `User <@${userId}> was ${actionText} for triggering the honeypot in <#${honeypotChannelId}>.`,
   };
 }
 
-export const defaultLogActionMessage = "User {{user:ping}} was {{action:text}} for triggering the honeypot in {{honeypot:channel:ping}}."
+export const defaultLogActionMessage = "User {{user:mention}} was {{action:text}} for triggering the honeypot in {{honeypot:channel:mention}}."
