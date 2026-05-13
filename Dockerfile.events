@@ -17,5 +17,6 @@ WORKDIR /app
 COPY --from=builder /app/dist/event-handler ./event-handler
 
 ENV NODE_ENV=production
+ENV BUN_FEATURE_FLAG_EXPERIMENTAL_HTTP3_CLIENT=1
 
 CMD ["./event-handler", "--title=Honeypot-Events"]
