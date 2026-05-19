@@ -10,11 +10,15 @@ export type HoneypotConfig = {
 };
 
 export const db = new SQL(process.env.DATABASE_URL || "sqlite://honeypot.sqlite", {
-  readonly: process.env.DATABASE_READONLY === "true",
+  readonly: process.env.DATABASE_READONLY === "true" ? true : undefined,
 });
 
 export async function initDb() {
-  await db.unsafe("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 10000;").catch(() => { });
+  if (db.options.adapter === "sqlite") {
+    await db.unsafe("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 30000; PRAGMA wal_autocheckpoint = 1000;")
+      .catch((e) => console.error("Failed to set PRAGMA settings:", e));
+  }
+
   await db`
     CREATE TABLE IF NOT EXISTS honeypot_config (
       guild_id TEXT PRIMARY KEY,

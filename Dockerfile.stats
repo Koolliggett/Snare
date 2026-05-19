@@ -18,11 +18,12 @@ WORKDIR /app
 
 RUN apk add --no-cache libstdc++ libgcc
 
-RUN addgroup -g 10001 botgroup && adduser -D -u 10001 -G botgroup -s /sbin/nologin botuser
+# RUN addgroup -g 10001 botgroup && adduser -D -u 10001 -G botgroup -s /sbin/nologin botuser
 
-COPY --from=builder --chown=botuser:botgroup /app/dist/stats-api ./stats-api
+# COPY --from=builder --chown=botuser:botgroup /app/dist/stats-api ./stats-api
+COPY --from=builder /app/dist/stats-api ./stats-api
 
-USER botuser
+# USER botuser
 
 EXPOSE 3000
 ENV NODE_ENV=production
