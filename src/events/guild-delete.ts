@@ -11,7 +11,7 @@ const handler: EventHandler<GatewayDispatchEvents.GuildDelete> = {
             await db.deleteConfig(guild.id);
             invalidateGuildInfoCache(guild.id, redis);
             if (redis) removeGuildSubscribedChannelCache(guild.id, redis);
-            redis?.publish("guild_count", "");
+            redis?.publish("guild_count", "-1");
         } catch (err) {
             console.error(`Failed to delete honeypot config for guild ${guild.id}:`, err);
         }

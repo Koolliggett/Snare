@@ -43,6 +43,8 @@ For best results, position your *#honeypot* channel near the top of your server 
 
 </details>
 
+[Learn more...](https://honeypot.riskymh.dev/docs)
+
 ## Getting Started (dev)
 
 - [Bun](https://bun.sh/) (v1.3+)

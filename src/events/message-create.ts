@@ -170,7 +170,7 @@ const onMessage = async (
         };
         if (!failed && !isOwner) {
             await db.logModerateEvent(guildId, userId);
-            redis?.publish("moderate_event", "");
+            redis?.publish("moderate_event", "+1");
         }
 
         try {
