@@ -176,63 +176,88 @@ export async function setHoneypotMessages(guild_id: string, messages: { warning_
 }
 
 
-export async function getFullStats(): Promise<{
-  guilds: number;
-  moderations: number;
-  last7dModerations: number;
-  last7dEngagedGuilds: number;
-  dailyStats: { date: string; moderations: number; engagedGuilds: number; }[];
-}> {
-  const sqlAdapter = db.options.adapter || "sqlite";
+/** Formats a Date object to a SQL-compatible 'YYYY-MM-DD 00:00:00' string */
+const toSqlTime = (d: Date): string => {
+  const pad = (n: number) => (n < 10 ? '0' + n : n);
+  const yyyy = d.getUTCFullYear();
+  const mm = pad(d.getUTCMonth() + 1);
+  const dd = pad(d.getUTCDate());
 
-  // Rolling window of literal 7d
-  const last7dWhere = {
-    sqlite: db`timestamp >= datetime('now', '-7 days')`,
-    postgres: db`timestamp >= NOW() - INTERVAL '7 days' `,
-    mysql: db`timestamp >= NOW() - INTERVAL 7 DAY `,
-    mariadb: db`timestamp >= NOW() - INTERVAL 7 DAY`,
-  }[sqlAdapter] || db`1=1`;
+  return `${yyyy}-${mm}-${dd} 00:00:00`;
+};
 
-  const metaPromise = await db`
-    SELECT
-      (SELECT COUNT(*) FROM honeypot_config) AS guilds,
-      (SELECT COUNT(*) FROM honeypot_events) AS moderations,
-      (SELECT COUNT(*) FROM honeypot_events WHERE ${last7dWhere}) AS last7dModerations,
-      (SELECT COUNT(DISTINCT guild_id) FROM honeypot_events WHERE ${last7dWhere}) AS last7dEngagedGuilds
-  `;
+export async function getFullStats() {
+  const now = new Date()
 
-  // Rounded window of 14d (no partial days)
-  const last14dWhere = {
-    sqlite: db`timestamp >= datetime('now', '-14 days', 'start of day')
-             AND timestamp < datetime('now', 'start of day')`,
-    postgres: db`timestamp >= CURRENT_DATE - INTERVAL '14 days' AND timestamp < CURRENT_DATE`,
-    mysql: db`timestamp >= CURDATE() - INTERVAL 14 DAY
-             AND timestamp < CURDATE()`,
-    mariadb: db`timestamp >= CURDATE() - INTERVAL 14 DAY
-               AND timestamp < CURDATE()`,
-  }[sqlAdapter] || db`1=1`;
+  const lastMidnight = new Date(now);
+  lastMidnight.setUTCHours(0, 0, 0, 0);
+  const lastMidnightInt = lastMidnight.getTime();
 
-  const dailyRowPromise = await db`
-    SELECT DATE(timestamp) AS date,
-      COUNT(*) AS moderations,
-      COUNT(DISTINCT guild_id) AS engagedGuilds
-    FROM honeypot_events
-    WHERE ${last14dWhere}
-    GROUP BY DATE(timestamp)
-    ORDER BY DATE(timestamp) ASC;
-  `;
+  const sevenDaysAgo = new Date(lastMidnight);
+  sevenDaysAgo.setUTCDate(now.getUTCDate() - 7);
+  const sevenDaysAgoInt = sevenDaysAgo.getTime();
 
-  const [[metaRow], dailyRows] = await Promise.all([metaPromise, dailyRowPromise]);
+  const fourteenDaysAgo = new Date(lastMidnight);
+  fourteenDaysAgo.setUTCDate(now.getUTCDate() - 14);
+  const fourteenDaysAgoInt = fourteenDaysAgo.getTime();
+
+  const [[meta], events] = await Promise.all([
+    db`
+      SELECT
+        (SELECT COUNT(*) FROM honeypot_config) AS guilds,
+        (SELECT COUNT(*) FROM honeypot_events) AS moderations
+    `,
+
+    db`
+      SELECT timestamp, guild_id
+      FROM honeypot_events
+      WHERE timestamp >= ${toSqlTime(fourteenDaysAgo)}
+      ORDER BY timestamp ASC;
+    `,
+  ]);
+
+  let last7dModerations = 0;
+  const last7dGuilds = new Set<string>();
+  const dailyMap = new Map<string, { moderations: number; guilds: Set<string> }>();
+
+  for (const row of events) {
+    const rowDate = new Date(row.timestamp);
+    const ts = rowDate.getTime();
+
+    // skip events older than 14 days since they are irrelevant too old
+    if (ts < fourteenDaysAgoInt) continue;
+
+    if (ts >= sevenDaysAgoInt) {
+      last7dModerations++;
+      if (row.guild_id) last7dGuilds.add(row.guild_id);
+    }
+
+    // skip todays events for daily stats since the day isnt over yet
+    if (ts >= lastMidnightInt) continue;
+
+    const date = rowDate.toISOString().slice(0, "YYYY-MM-DD".length);
+
+    let day = dailyMap.get(date);
+    if (!day) {
+      day = { moderations: 0, guilds: new Set() };
+      dailyMap.set(date, day);
+    }
+
+    day.moderations++;
+    if (row.guild_id) day.guilds.add(row.guild_id);
+  }
 
   return {
-    guilds: metaRow.guilds,
-    moderations: metaRow.moderations,
-    last7dModerations: metaRow.last7dModerations,
-    last7dEngagedGuilds: metaRow.last7dEngagedGuilds,
-    dailyStats: dailyRows.map((row: any) => ({
-      date: row.date,
-      moderations: row.moderations,
-      engagedGuilds: row.engagedGuilds,
-    })),
+    guilds: meta.guilds,
+    moderations: meta.moderations,
+    last7dModerations,
+    last7dEngagedGuilds: last7dGuilds.size,
+    dailyStats: Array.from(dailyMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, v]) => ({
+        date,
+        moderations: v.moderations,
+        engagedGuilds: v.guilds.size,
+      })),
   };
 }
