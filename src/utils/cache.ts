@@ -1,30 +1,38 @@
 import type { API } from "@discordjs/core";
 import type { API as API2 } from "@discordjs/core/http-only";
+import { GuildFeature } from "discord-api-types/v10";
 
 const yearSeconds = 365 * 24 * 60 * 60;
 
-interface GuildInfo { name: string, ownerId: string, vanityInviteCode?: string | null }
+interface GuildInfo { name: string, ownerId: string, isDiscoverable?: boolean; }
 const guildCache = new Map<string, GuildInfo>();
 
 export const getGuildInfo = async (api: API | API2, guildId: string, signal?: AbortSignal, redis?: Bun.RedisClient): Promise<GuildInfo> => {
   if (redis) {
     const cached = await redis.hget("guild_info", guildId);
-    if (cached) return JSON.parse(cached);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      // backfill for old cache entries before we added isDiscoverable to cache
+      // high chance that if its got a vanity, then its also discoverable
+      // todo: remove this sometime
+      if (parsed.vanityInviteCode) parsed.isDiscoverable = true;
+      return parsed;
+    }
     const guild = await api.guilds.get(guildId, undefined, { signal });
-    const info: GuildInfo = { name: guild.name, ownerId: guild.owner_id, vanityInviteCode: guild.vanity_url_code || undefined };
+    const info: GuildInfo = { name: guild.name, ownerId: guild.owner_id, isDiscoverable: guild.features.includes(GuildFeature.Discoverable) ? true : undefined };
     await redis.hsetex("guild_info", "EX", yearSeconds, "FIELDS", 1, guildId, JSON.stringify(info));
     return info;
   } else {
     if (guildCache.has(guildId)) return guildCache.get(guildId)!;
     const guild = await api.guilds.get(guildId, undefined, { signal });
-    const info: GuildInfo = { name: guild.name, ownerId: guild.owner_id, vanityInviteCode: guild.vanity_url_code || undefined };
+    const info: GuildInfo = { name: guild.name, ownerId: guild.owner_id, isDiscoverable: guild.features.includes(GuildFeature.Discoverable) ? true : undefined };
     guildCache.set(guildId, info);
     return info;
   }
 };
 export const setGuildInfoCache = (guildId: string, info: GuildInfo, redis?: Bun.RedisClient) => {
   if (redis) {
-    const cacheStr = JSON.stringify({ name: info.name, ownerId: info.ownerId, vanityInviteCode: info.vanityInviteCode || undefined })
+    const cacheStr = JSON.stringify({ name: info.name, ownerId: info.ownerId, isDiscoverable: info.isDiscoverable ? true : undefined });
     redis.hsetex("guild_info", "EX", yearSeconds, "FIELDS", 1, guildId, cacheStr);
   } else {
     guildCache.set(guildId, info);

@@ -6,7 +6,7 @@ export type HoneypotConfig = {
   honeypot_msg_id: string | null;
   log_channel_id: string | null;
   action: 'softban' | 'ban' | 'disabled';
-  experiments: ("no-warning-msg" | "no-dm" | "random-channel-name" | "random-channel-name-chaos" | "channel-warmer" | "forward-message")[]
+  experiments: ("no-warning-msg" | "no-dm" | "random-channel-name" | "random-channel-name-chaos" | "channel-warmer" | "forward-message" | "reinvite")[]
 };
 
 export const db = new SQL(process.env.DATABASE_URL || "sqlite://honeypot.sqlite", {
@@ -48,6 +48,11 @@ export async function initDb() {
       warning_message TEXT,
       dm_message TEXT,
       log_message TEXT,
+      FOREIGN KEY (guild_id) REFERENCES honeypot_config(guild_id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS honeypot_reinvite (
+      guild_id TEXT PRIMARY KEY,
+      invite TEXT,
       FOREIGN KEY (guild_id) REFERENCES honeypot_config(guild_id) ON DELETE CASCADE
     );
 
@@ -176,8 +181,33 @@ export async function setHoneypotMessages(guild_id: string, messages: { warning_
 }
 
 
+export async function getReinvite(guild_id: string): Promise<string | null> {
+  const [row] = await db`SELECT invite FROM honeypot_reinvite WHERE guild_id = ${guild_id}`;
+  if (!row) return null;
+  return row.invite;
+}
 
-export async function getFullStats() {
+export async function setReinvite(guild_id: string, invite: string | false) {
+  if (!invite) {
+    await db`DELETE FROM honeypot_reinvite WHERE guild_id = ${guild_id}`;
+    return;
+  }
+  await db`
+    INSERT INTO honeypot_reinvite (guild_id, invite)
+    VALUES (${guild_id}, ${invite})
+    ON CONFLICT(guild_id) DO UPDATE SET
+      invite=excluded.invite
+  `;
+}
+
+
+export async function getFullStats(): Promise<{
+  guilds: number;
+  moderations: number;
+  last7dModerations: number;
+  last7dEngagedGuilds: number;
+  dailyStats: { date: string; moderations: number; engagedGuilds: number; }[];
+}> {
   const now = new Date();
 
   const sevenDaysAgo = new Date();

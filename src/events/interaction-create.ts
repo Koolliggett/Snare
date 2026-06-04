@@ -1,7 +1,7 @@
 import { ButtonStyle, ChannelType, ComponentType, GatewayDispatchEvents, InteractionType, MessageFlags, PermissionFlagsBits, RESTJSONErrorCodes, SelectMenuDefaultValueType, TextInputStyle, type APIModalInteractionResponseCallbackData, type RESTPostAPIChannelMessageJSONBody } from "discord-api-types/v10";
 import type { EventHandler } from "./events";
 import type { HoneypotConfig } from "../utils/db";
-import { honeypotWarningMessage, defaultHoneypotWarningMessage, defaultHoneypotUserDMMessage, defaultLogActionMessage, honeypotUserDMMessage } from "../utils/messages";
+import { honeypotWarningMessage, defaultHoneypotWarningMessage, defaultHoneypotUserDMMessage, defaultLogActionMessage, honeypotUserDMMessage, defaultHoneypotUserDMMessageReinvitePart } from "../utils/messages";
 import { channelWarmerExperiment, randomChannelNameExperiment } from "../cron/experiments";
 import getBadWords from "../utils/bad-words.macro" with { type: "macro" };
 import { CUSTOM_EMOJI, CUSTOM_EMOJI_ID } from "../utils/constants";
@@ -98,6 +98,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                 placeholder: "Select experiments to enable",
                                 options: [
                                     // { label: "Forward Message", value: "forward-message", description: "Forward the triggered message to the log channel", default: config.experiments.includes("forward-message") },
+                                    { label: "Reinvite", value: "reinvite", description: "In the DM message give an invite code to rejoin", default: config.experiments.includes("reinvite") },
                                     { label: "No Warning Msg", value: "no-warning-msg", description: "Don’t include a warning message in the #honeypot channel", default: config.experiments.includes("no-warning-msg") },
                                     { label: "No DM", value: "no-dm", description: "Don’t DM the user that they triggered the honeypot", default: config.experiments.includes("no-dm") },
                                     // { label: "Timeout for Typing", value: "timeout-for-typing", description: "Timeout users (for 10sec) who are typing in the honeypot channel", default: config.experiments.includes("timeout-for-typing") },
@@ -106,7 +107,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                     { label: "Random Channel Name (Chaos)", value: "random-channel-name-chaos", description: "Randomise the honeypot channel name with random characters (every day)", default: config.experiments.includes("random-channel-name-chaos") },
                                 ],
                                 min_values: 0,
-                                max_values: 5,
+                                max_values: 6,
                                 required: false,
                             }
                         }
@@ -144,7 +145,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     if (c.type === ComponentType.StringSelect) {
                         if (c.custom_id === "honeypot_experiments" && Array.isArray(c.values)) {
                             for (const val of c.values) {
-                                if (["no-warning-msg", "no-dm", "random-channel-name", "random-channel-name-chaos", "channel-warmer", "forward-message"].includes(val)) {
+                                if (["no-warning-msg", "no-dm", "random-channel-name", "random-channel-name-chaos", "channel-warmer", "forward-message", "reinvite"].includes(val)) {
                                     newConfig.experiments.push(val as any);
                                 }
                             }
@@ -210,6 +211,26 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                         });
                         return;
                     }
+
+                    if (newConfig.experiments.includes("reinvite")) {
+                        if (memberPerms && !hasPermission(BigInt(memberPerms), PermissionFlagsBits.CreateInstantInvite)) {
+                            await api.interactions.reply(interaction.id, interaction.token, {
+                                content: `You need the Create Instant Invite permission to enable the "Reinvite" experiment.\n-# No settings have been changed.`,
+                                allowed_mentions: {},
+                                flags: MessageFlags.Ephemeral,
+                            });
+                            return;
+                        }
+                        if (!hasPermission(BigInt(interaction.app_permissions), PermissionFlagsBits.CreateInstantInvite)) {
+                            await api.interactions.reply(interaction.id, interaction.token, {
+                                content: `I need the Create Instant Invite permission to enable the "Reinvite" experiment.\n-# No settings have been changed.`,
+                                allowed_mentions: {},
+                                flags: MessageFlags.Ephemeral,
+                            });
+                            return;
+                        }
+                    }
+
                     // if any other actions added in future, add their equivalent permission checks here
                 }
 
@@ -303,6 +324,50 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     }
                 }
 
+                if (newConfig.experiments.includes("reinvite") && (!prevConfig?.experiments.includes("reinvite") || honeypotChanged)) {
+                    try {
+                        const invite = await api.channels.createInvite(newConfig.honeypot_channel_id, {
+                            max_age: 0, // never
+                            max_uses: 0, // unlimited
+                            unique: false,
+                        }, {
+                            reason: "Creating invite for reinvite experiment",
+                            signal: AbortSignal.timeout(1_000),
+                        });
+                        await db.setReinvite(guildId, invite.code);
+                    } catch (err) {
+                        // clean up just created honeypot message if making invite fails (because user might think it's fully set up otherwise)
+                        if (msgId) {
+                            await api.channels.deleteMessage(newConfig.honeypot_channel_id, msgId, { reason: "Cleaning up honeypot message after reinvite experiment failure" }).catch(() => null);
+                        }
+                        console.log(`Error fetching invite for reinvite experiment: ${err}`);
+                        await api.interactions.reply(interaction.id, interaction.token, {
+                            content: `There was a problem fetching the invite code for the "Reinvite" experiment. Please check my permissions and try again.\n-# No settings have been changed.`,
+                            allowed_mentions: {},
+                            flags: MessageFlags.Ephemeral,
+                        });
+                        return;
+                    }
+                    const messages = await db.getHoneypotMessages(guildId);
+                    if (messages.dm_message && !messages.dm_message?.includes(defaultHoneypotUserDMMessageReinvitePart)) {
+                        const newDmMessage = messages.dm_message + defaultHoneypotUserDMMessageReinvitePart;
+                        await db.setHoneypotMessages(guildId, {
+                            ...messages,
+                            dm_message: newDmMessage,
+                        });
+                    }
+                } else if (!newConfig.experiments.includes("reinvite") && prevConfig?.experiments.includes("reinvite")) {
+                    await db.setReinvite(guildId, false);
+                    const messages = await db.getHoneypotMessages(guildId);
+                    if (messages.dm_message?.includes(defaultHoneypotUserDMMessageReinvitePart)) {
+                        const newDmMessage = messages.dm_message.replace(defaultHoneypotUserDMMessageReinvitePart, "");
+                        await db.setHoneypotMessages(guildId, {
+                            ...messages,
+                            dm_message: newDmMessage,
+                        });
+                    }
+                }
+
                 await db.setConfig({
                     ...(prevConfig || {}),
                     ...newConfig,
@@ -351,9 +416,23 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                 return;
             }
 
+            function getDmMessage(config: HoneypotConfig | null, guild: Awaited<ReturnType<typeof getGuildInfo>> | null): string {
+                let msg = defaultHoneypotUserDMMessage;
+                if (config?.experiments?.includes("reinvite")) {
+                    msg += defaultHoneypotUserDMMessageReinvitePart;
+                }
+                if (guild?.isDiscoverable) {
+                    msg = msg.replace(" **{{server:name}}** ", " **{{server:name:linked}}** ");
+                }
+                return msg;
+            }
             // slash command handler: show modal
             if (guildId && interaction.type === InteractionType.ApplicationCommand && interaction.data.name === "honeypot-messages") {
-                let config = await db.getHoneypotMessages(guildId);
+                const [messages, config, guild] = await Promise.all([
+                    db.getHoneypotMessages(guildId),
+                    db.getConfig(guildId),
+                    getGuildInfo(api, guildId, AbortSignal.timeout(500), redis).catch(() => null)
+                ]);
 
                 const modal: APIModalInteractionResponseCallbackData = {
                     title: "Honeypot's Messages",
@@ -377,7 +456,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                 min_length: 10,
                                 max_length: 1500,
                                 required: false,
-                                value: config?.warning_message || defaultHoneypotWarningMessage,
+                                value: messages?.warning_message || defaultHoneypotWarningMessage,
                             },
                         },
                         {
@@ -391,7 +470,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                 min_length: 10,
                                 max_length: 1000,
                                 required: false,
-                                value: config?.dm_message || defaultHoneypotUserDMMessage,
+                                value: messages?.dm_message || getDmMessage(config, guild),
                             },
                         },
                         {
@@ -405,7 +484,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                 min_length: 10,
                                 max_length: 500,
                                 required: false,
-                                value: config?.log_message || defaultLogActionMessage,
+                                value: messages?.log_message || defaultLogActionMessage,
                             },
                         },
                         {
@@ -426,6 +505,11 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
 
             // modal submit handler: update config from modal values
             else if (guildId && interaction.type === InteractionType.ModalSubmit && interaction.data.custom_id === `honeypot_messages_modal:${userContextHash}`) {
+                const [config, guild] = await Promise.all([
+                    db.getConfig(guildId),
+                    getGuildInfo(api, guildId, AbortSignal.timeout(500), redis).catch(() => null)
+                ]);
+
                 const newMessages: Awaited<ReturnType<typeof db.getHoneypotMessages>> = {
                     dm_message: null,
                     warning_message: null,
@@ -443,7 +527,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                             if (c.value !== defaultHoneypotWarningMessage) newMessages.warning_message = c.value;
                         }
                         if (c.custom_id === "honeypot_dm_message" && c.value.length) {
-                            if (c.value !== defaultHoneypotUserDMMessage) newMessages.dm_message = c.value;
+                            if (c.value !== defaultHoneypotUserDMMessage && c.value !== getDmMessage(config, guild)) newMessages.dm_message = c.value;
                         }
                         if (c.custom_id === "log_message" && c.value.length) {
                             if (c.value !== defaultLogActionMessage) newMessages.log_message = c.value;
@@ -483,7 +567,6 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     return;
                 }
 
-                const config = await db.getConfig(guildId);
                 if (config?.honeypot_channel_id && config?.honeypot_msg_id) {
                     const guildModeratedCount = await db.getModeratedCount(guildId);
                     try {
@@ -573,13 +656,15 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                         try {
                             const server = await getGuildInfo(api, guildId, timeout, redis);
                             const { id: dmChannel } = await api.users.createDM(userId, { signal: timeout });
+                            const reinviteCode = config?.experiments.includes("reinvite") && await db.getReinvite(guildId);
                             await api.channels.createMessage(
                                 dmChannel,
                                 honeypotUserDMMessage(
                                     config?.action || "softban",
-                                    server?.name ?? guildId!,
-                                    server.vanityInviteCode ? `https://discord.gg/${server.vanityInviteCode}` : undefined,
+                                    server.name ?? guildId!,
+                                    server.isDiscoverable ? `https://discord.com/servers/${guildId}` : undefined,
                                     `https://discord.com/channels/${guildId}/${config?.honeypot_channel_id || ""}/${config?.honeypot_msg_id || ""}`,
+                                    reinviteCode ? `https://discord.gg/${reinviteCode}` : null,
                                     false,
                                     newMessages.dm_message,
                                     true
@@ -728,7 +813,15 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
 
             return;
         } catch (err) {
-            console.error(`Error with InteractionCreate handler: ${err}`);
+            let interactionInfo = "";
+            if (interaction.type === InteractionType.ApplicationCommand) {
+                interactionInfo = `/${interaction.data.name}`;
+            } else if (interaction.type === InteractionType.MessageComponent) {
+                interactionInfo = `msg ${interaction.data.custom_id.split(":")[0]}`;
+            } else if (interaction.type === InteractionType.ModalSubmit) {
+                interactionInfo = `modal ${interaction.data.custom_id.split(":")[0]}`;
+            }
+            console.error(`Error with InteractionCreate handler [${interactionInfo}]: ${err}`);
         }
     }
 };

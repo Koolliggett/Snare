@@ -97,12 +97,14 @@ const onMessage = async (
                     ({ id: dmChannel } = await api.users.createDM(userId, { signal: timeout }));
                     if (redis) setDmChannelCache(userId, dmChannel, redis);
                 }
+                const reinviteCode = config.experiments.includes("reinvite") && await db.getReinvite(guildId);
                 const link = `https://discord.com/channels/${guildId}/${channelId}/${config.honeypot_msg_id || messageId || ""}`;
                 const dmContent = honeypotUserDMMessage(
                     config.action,
                     guild?.name ?? guildId!,
-                    guild?.vanityInviteCode ? `https://discord.gg/${guild.vanityInviteCode}` : undefined,
+                    guild?.isDiscoverable ? `https://discord.com/servers/${guildId}` : undefined,
                     link,
+                    reinviteCode ? `https://discord.gg/${reinviteCode}` : null,
                     isOwner,
                     customMessages?.dm_message
                 );

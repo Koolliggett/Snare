@@ -64,9 +64,8 @@ const pastTenseActionText = {
   softban: 'kicked',
   disabled: '???it is disabled???'
 } as const
-export function honeypotUserDMMessage(action: HoneypotConfig["action"], guildName: string, guildInvite: string | null | undefined, link: string, isOwner = false, customText?: string | null, isExample = false): RESTPostAPIChannelMessageJSONBody {
+export function honeypotUserDMMessage(action: HoneypotConfig["action"], guildName: string, discoverableLink: string | undefined, link: string, reinviteUrl: string | null, isOwner = false, customText?: string | null, isExample = false): RESTPostAPIChannelMessageJSONBody {
   const actionText = pastTenseActionText[action] || '???unknown action???';
-  const guildNameFormatted = guildInvite ? `[${guildName}](${guildInvite})` : `${guildName}`;
   return {
     flags: MessageFlags.IsComponentsV2,
     allowed_mentions: {},
@@ -82,10 +81,14 @@ export function honeypotUserDMMessage(action: HoneypotConfig["action"], guildNam
                 type: ComponentType.TextDisplay,
                 content: customText
                   ?.replace(/\{\{action(:text)?\}\}/g, actionText)
-                  .replace(/\{\{server:name\}\}/g, guildNameFormatted)
-                  .replace(/\{\{server:name:\}\}/g, guildName)
+                  .replace(/\{\{server:name:?\}\}/g, guildName)
+                  .replace(/\{\{server:name:linked\}\}/g, discoverableLink ? `[${guildName}](${discoverableLink})` : guildName)
                   .replace(/\{\{honeypot:channel:link\}\}/g, link)
-                  || `## Honeypot Triggered\n\nYou have been **${actionText}** from **${guildNameFormatted}** for sending a message in the [honeypot](${link}) channel.`
+                  .replace(/\{\{server:public-link\}\}/g, discoverableLink || "https://discord.com/servers")
+                  .replace(/\{\{reinvite:link\}\}/g, reinviteUrl || "<invite link not available>")
+                  || (`## Honeypot Triggered\n\nYou have been **${actionText}** from **${discoverableLink ? `[${guildName}](${discoverableLink})` : guildName}** for sending a message in the [honeypot](${link}) channel.`
+                    + (reinviteUrl ? `\n\nOnce you have sorted out how your account spammed, you can rejoin via ${reinviteUrl}` : "")
+                  )
               },
               {
                 type: ComponentType.TextDisplay,
@@ -116,6 +119,7 @@ export function honeypotUserDMMessage(action: HoneypotConfig["action"], guildNam
 }
 
 export const defaultHoneypotUserDMMessage = "## Honeypot Triggered\n\nYou have been **{{action:text}}** from **{{server:name}}** for sending a message in the [honeypot]({{honeypot:channel:link}}) channel.";
+export const defaultHoneypotUserDMMessageReinvitePart = "\n\nOnce you have sorted out how your account spammed, you can rejoin via {{reinvite:link}}";
 
 export function logActionMessage(userId: string, honeypotChannelId: string, action: HoneypotConfig["action"], customText?: string | null): RESTPostAPIChannelMessageJSONBody {
   const actionText = pastTenseActionText[action] || '???unknown action???';

@@ -36,6 +36,7 @@ Options you can enable to avoid the bots better
 1. **Random Channel Name (chaos):** Randomize the honeypot channel name with random characters (every day)
 1. **No Warning Msg:** Don’t include a warning message in the #honeypot channel
 1. **No DM:** Don’t DM the user that they triggered the honeypot
+1. **Reinvite:** In DM message include a link to be able to rejoin
 
 ### Tips to Maximize Honeypot Bot’s Effectiveness
 
