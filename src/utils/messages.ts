@@ -121,13 +121,14 @@ export function honeypotUserDMMessage(action: HoneypotConfig["action"], guildNam
 export const defaultHoneypotUserDMMessage = "## Honeypot Triggered\n\nYou have been **{{action:text}}** from **{{server:name}}** for sending a message in the [honeypot]({{honeypot:channel:link}}) channel.";
 export const defaultHoneypotUserDMMessageReinvitePart = "\n\nOnce you have sorted out how your account spammed, you can rejoin via {{reinvite:link}}";
 
-export function logActionMessage(userId: string, honeypotChannelId: string, action: HoneypotConfig["action"], customText?: string | null): RESTPostAPIChannelMessageJSONBody {
+export function logActionMessage(userId: string, honeypotChannelId: string, action: HoneypotConfig["action"], customText?: string | null, moderatedCount: number = 0): RESTPostAPIChannelMessageJSONBody {
   const actionText = pastTenseActionText[action] || '???unknown action???';
   const text = customText
     ?.replace(/\{\{user:id\}\}/g, userId)
     .replace(/\{\{user(:ping|:mention)?\}\}/g, `<@${userId}>`)
     .replace(/\{\{action(:text)?\}\}/g, actionText)
     .replace(/\{\{honeypot:channel(:mention|:ping)?\}\}/g, `<#${honeypotChannelId}>`)
+    .replace(/\{\{server:moderation-count\}\}/g, moderatedCount.toLocaleString())
     || `<@${userId}> was ${actionText} for triggering the honeypot in <#${honeypotChannelId}>\n-# User ID: \`${userId}\``
 
   if (action !== 'ban') {

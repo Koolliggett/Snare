@@ -153,21 +153,7 @@ const onMessage = async (
                     console.log(`Failed to unban user after ban: ${err}`);
                     // maybe discord hasn't banned yet and is throwing unknown ban, so try again after a short wait
                     if (err instanceof DiscordAPIError && err.code === RESTJSONErrorCodes.UnknownBan) {
-                        try {
-                            await Bun.sleep(1_250);
-                            await api.guilds.unbanUser(
-                                guildId,
-                                userId,
-                                { reason: "Triggered honeypot -> softban (kick) 2/2" }
-                            );
-                        } catch (err) {
-                            console.log(`Failed to unban user after retry: ${err}`);
-                            if (err instanceof DiscordAPIError && err.code === RESTJSONErrorCodes.UnknownBan) {
-                                // If its still throwing unknown ban, then the user is likely already unbanned by some external force
-                            } else {
-                                failed = "unban";
-                            }
-                        }
+                        // If its still throwing unknown ban, then the user is likely already unbanned by some external force
                     } else {
                         failed = "unban";
                     }
@@ -219,10 +205,12 @@ const onMessage = async (
             redis?.publish("moderate_event", "+1");
         }
 
+        const moderatedCount = await db.getModeratedCount(guildId);
+
         try {
             if (config.log_channel_id && !failed && !isOwner) {
                 await api.channels.createMessage(config.log_channel_id,
-                    logActionMessage(userId, config.honeypot_channel_id, config.action, customMessages?.log_message)
+                    logActionMessage(userId, config.honeypot_channel_id, config.action, customMessages?.log_message, moderatedCount)
                 );
             } else if (isOwner) {
                 await api.channels.createMessage(config.log_channel_id || config.honeypot_channel_id, {
@@ -256,7 +244,6 @@ const onMessage = async (
         }
 
         if (config.honeypot_msg_id && !config.experiments.includes("no-warning-msg")) try {
-            const moderatedCount = await db.getModeratedCount(guildId);
             await api.channels.editMessage(
                 config.honeypot_channel_id,
                 config.honeypot_msg_id,

@@ -5,7 +5,7 @@ import { honeypotWarningMessage, defaultHoneypotWarningMessage, defaultHoneypotU
 import { channelWarmerExperiment, randomChannelNameExperiment } from "../cron/experiments";
 import getBadWords from "../utils/bad-words.macro" with { type: "macro" };
 import { CUSTOM_EMOJI, CUSTOM_EMOJI_ID } from "../utils/constants";
-import { getGuildInfo, removeFromDeleteMessageCache, setSubscribedChannelCache } from "../utils/cache";
+import { getDmChannelCache, getGuildInfo, removeFromDeleteMessageCache, setDmChannelCache, setSubscribedChannelCache } from "../utils/cache";
 import { DiscordAPIError } from "@discordjs/rest";
 import { styleText } from "node:util";
 
@@ -655,7 +655,11 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     if (userId) {
                         try {
                             const server = await getGuildInfo(api, guildId, timeout, redis);
-                            const { id: dmChannel } = await api.users.createDM(userId, { signal: timeout });
+                            let dmChannel = redis && await getDmChannelCache(userId, redis);
+                            if (!dmChannel) {
+                                ({ id: dmChannel } = await api.users.createDM(userId, { signal: timeout }));
+                                if (redis) setDmChannelCache(userId, dmChannel, redis);
+                            }
                             const reinviteCode = config?.experiments.includes("reinvite") && await db.getReinvite(guildId);
                             await api.channels.createMessage(
                                 dmChannel,
