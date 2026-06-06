@@ -10,14 +10,7 @@ const guildCache = new Map<string, GuildInfo>();
 export const getGuildInfo = async (api: API | API2, guildId: string, signal?: AbortSignal, redis?: Bun.RedisClient): Promise<GuildInfo> => {
   if (redis) {
     const cached = await redis.hget("guild_info", guildId);
-    if (cached) {
-      const parsed = JSON.parse(cached);
-      // backfill for old cache entries before we added isDiscoverable to cache
-      // high chance that if its got a vanity, then its also discoverable
-      // todo: remove this sometime
-      if (parsed.vanityInviteCode) parsed.isDiscoverable = true;
-      return parsed;
-    }
+    if (cached) return JSON.parse(cached);
     const guild = await api.guilds.get(guildId, undefined, { signal });
     const info: GuildInfo = { name: guild.name, ownerId: guild.owner_id, isDiscoverable: guild.features.includes(GuildFeature.Discoverable) ? true : undefined };
     await redis.hsetex("guild_info", "EX", yearSeconds, "FIELDS", 1, guildId, JSON.stringify(info));

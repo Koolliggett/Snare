@@ -98,16 +98,18 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                 placeholder: "Select experiments to enable",
                                 options: [
                                     // { label: "Forward Message", value: "forward-message", description: "Forward the triggered message to the log channel", default: config.experiments.includes("forward-message") },
-                                    { label: "Reinvite", value: "reinvite", description: "In the DM message give an invite code to rejoin", default: config.experiments.includes("reinvite") },
-                                    { label: "No Warning Msg", value: "no-warning-msg", description: "Don’t include a warning message in the #honeypot channel", default: config.experiments.includes("no-warning-msg") },
-                                    { label: "No DM", value: "no-dm", description: "Don’t DM the user that they triggered the honeypot", default: config.experiments.includes("no-dm") },
+                                    { label: "Reinvite", value: "reinvite", description: "In the DM message give an invite code to rejoin (recommended)", default: config.experiments.includes("reinvite") },
+                                    { label: "Timeout First", value: "timeout-first", description: "Timeout users (for 1hr) before banning/softbanning", default: config.experiments.includes("timeout-first") },
                                     // { label: "Timeout for Typing", value: "timeout-for-typing", description: "Timeout users (for 10sec) who are typing in the honeypot channel", default: config.experiments.includes("timeout-for-typing") },
                                     { label: "Channel Warmer", value: "channel-warmer", description: "Keep the honeypot channel active (every day)", default: config.experiments.includes("channel-warmer") },
                                     { label: "Random Channel Name", value: "random-channel-name", description: "Randomize the honeypot channel name (every day)", default: config.experiments.includes("random-channel-name") },
+                                    { label: "No Warning Msg", value: "no-warning-msg", description: "Don’t include a warning message in the #honeypot channel", default: config.experiments.includes("no-warning-msg") },
+                                    { label: "No DM", value: "no-dm", description: "Don’t DM the user that they triggered the honeypot", default: config.experiments.includes("no-dm") },
+                                    { label: "Only More Recent Delete", value: "only-recent-delete", description: "Only delete last 15min of messages (instead of 1hr)", default: config.experiments.includes("only-recent-delete") },
                                     { label: "Random Channel Name (Chaos)", value: "random-channel-name-chaos", description: "Randomise the honeypot channel name with random characters (every day)", default: config.experiments.includes("random-channel-name-chaos") },
                                 ],
                                 min_values: 0,
-                                max_values: 6,
+                                max_values: 8,
                                 required: false,
                             }
                         }
@@ -145,7 +147,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     if (c.type === ComponentType.StringSelect) {
                         if (c.custom_id === "honeypot_experiments" && Array.isArray(c.values)) {
                             for (const val of c.values) {
-                                if (["no-warning-msg", "no-dm", "random-channel-name", "random-channel-name-chaos", "channel-warmer", "forward-message", "reinvite"].includes(val)) {
+                                if (["no-warning-msg", "no-dm", "random-channel-name", "random-channel-name-chaos", "channel-warmer", "forward-message", "reinvite", "timeout-first", "only-recent-delete"].includes(val)) {
                                     newConfig.experiments.push(val as any);
                                 }
                             }
@@ -231,6 +233,25 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                         }
                     }
 
+                    if (newConfig.experiments.includes("timeout-first")) {
+                        if (memberPerms && !hasPermission(BigInt(memberPerms), PermissionFlagsBits.ModerateMembers)) {
+                            await api.interactions.reply(interaction.id, interaction.token, {
+                                content: `You need the Moderate Members permission to enable the "Timeout First" experiment.\n-# No settings have been changed.`,
+                                allowed_mentions: {},
+                                flags: MessageFlags.Ephemeral,
+                            });
+                            return;
+                        }
+                        if (!hasPermission(BigInt(interaction.app_permissions), PermissionFlagsBits.ModerateMembers)) {
+                            await api.interactions.reply(interaction.id, interaction.token, {
+                                content: `I need the Moderate Members permission to enable the "Timeout First" experiment.\n-# No settings have been changed.`,
+                                allowed_mentions: {},
+                                flags: MessageFlags.Ephemeral,
+                            });
+                            return;
+                        }
+                    }
+
                     // if any other actions added in future, add their equivalent permission checks here
                 }
 
@@ -286,7 +307,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     }
                 } else if (prevConfig?.honeypot_msg_id && prevConfig?.honeypot_channel_id) {
                     // they didn’t want honeypot msg, so delete old one if exists
-                    await api.channels.deleteMessage(
+                    api.channels.deleteMessage(
                         prevConfig.honeypot_channel_id,
                         prevConfig.honeypot_msg_id,
                     ).catch(() => null);
@@ -302,7 +323,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     } catch (err) {
                         // clean up just created honeypot message if log channel fails (because user might think it's fully set up otherwise)
                         if (msgId) {
-                            await api.channels.deleteMessage(newConfig.honeypot_channel_id, msgId, { reason: "Cleaning up honeypot message after log channel setup failure" }).catch(() => null);
+                            api.channels.deleteMessage(newConfig.honeypot_channel_id, msgId, { reason: "Cleaning up honeypot message after log channel setup failure" }).catch(() => null);
                         }
 
                         if (err instanceof DiscordAPIError && (err.code == RESTJSONErrorCodes.MissingAccess || err.code == RESTJSONErrorCodes.MissingPermissions)) {
@@ -338,7 +359,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     } catch (err) {
                         // clean up just created honeypot message if making invite fails (because user might think it's fully set up otherwise)
                         if (msgId) {
-                            await api.channels.deleteMessage(newConfig.honeypot_channel_id, msgId, { reason: "Cleaning up honeypot message after reinvite experiment failure" }).catch(() => null);
+                            api.channels.deleteMessage(newConfig.honeypot_channel_id, msgId, { reason: "Cleaning up honeypot message after reinvite experiment failure" }).catch(() => null);
                         }
                         console.log(`Error fetching invite for reinvite experiment: ${err}`);
                         await api.interactions.reply(interaction.id, interaction.token, {

@@ -82,6 +82,15 @@ const onMessage = async (
         //     }).catch(err => console.log(`Failed to forward message to log channel: ${err}`));
         // }
 
+        let timepotPromise = null as null | Promise<any>;
+        if (config.experiments.includes("timeout-first")) {
+            // intentionally not awaited as in theory we can do DM and this at same time (and avoid extra wait-time)
+            timepotPromise = api.guilds.editMember(guildId, userId,
+                { communication_disabled_until: new Date(Date.now() + 3600000).toISOString() },
+                { reason: "Triggered honeypot -> timeout for 1hr before ban/softban" }
+            ).catch(err => console.log(`Failed to forward message to log channel: ${err}`));
+        }
+
         const customMessages = await db.getHoneypotMessages(guildId);
 
         // should DM user first before banning so that discord has less reason to block it
@@ -123,15 +132,21 @@ const onMessage = async (
 
         // we prob will win the delete before the ban, so no point delaying the ban to wait for msg to create (and not the biggest deal if it fails)
         // if (forwardPromise) await forwardPromise;
+        if (timepotPromise) await Promise.race([timepotPromise, Bun.sleep(1000)]); // if timeout fails, we don't want to wait too long before banning
 
         let failed: boolean | "permissions" | "owner" | "unban" = false;
         if (!isOwner) try {
+            // normally 1hr, but with the option only do last 15min
+            const deleteMessageSeconds = config.experiments.includes("only-recent-delete")
+                ? 900 // 15min
+                : 3600; // 1hr
+
             if (config.action === 'ban') {
                 // Ban: permanent ban, delete last 1 hour of messages
                 await api.guilds.banUser(
                     guildId,
                     userId,
-                    { delete_message_seconds: 3600 },
+                    { delete_message_seconds: deleteMessageSeconds },
                     { reason: "Triggered honeypot -> ban" }
                 );
             } else if (config.action === 'softban' || config.action === 'kick') {
@@ -139,7 +154,7 @@ const onMessage = async (
                 await api.guilds.banUser(
                     guildId,
                     userId,
-                    { delete_message_seconds: 3600 },
+                    { delete_message_seconds: deleteMessageSeconds },
                     { reason: "Triggered honeypot -> softban (kick) 1/2" }
                 );
                 try {
@@ -173,7 +188,7 @@ const onMessage = async (
                 //     await api.guilds.banUser(
                 //         guildId,
                 //         userId,
-                //         { delete_message_seconds: 3600 },
+                //         { delete_message_seconds: deleteMessageSeconds },
                 //         { reason: "Triggered honeypot -> softban (kick) 3/4", signal: AbortSignal.timeout(25_000) }
                 //     );
                 //     await api.guilds.unbanUser(
