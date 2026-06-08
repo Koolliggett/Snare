@@ -1,4 +1,4 @@
-import { GatewayDispatchEvents, MessageReferenceType, RESTJSONErrorCodes, type APIMessage } from "discord-api-types/v10";
+import { GatewayDispatchEvents, type RESTAPIMessageReference, RESTJSONErrorCodes, type APIMessage } from "discord-api-types/v10";
 import type { EventHandler } from "./events";
 import type { API } from "@discordjs/core";
 import type { API as API2 } from "@discordjs/core/http-only";
@@ -224,25 +224,36 @@ const onMessage = async (
         const moderatedCount = await db.getModeratedCount(guildId);
 
         try {
+            const reply = (messageId && channelId === config.honeypot_channel_id) ? {
+                message_id: messageId,
+                channel_id: channelId,
+                fail_if_not_exists: false,
+                guild_id: guildId
+            } satisfies RESTAPIMessageReference : undefined;
+
             if (config.log_channel_id && !failed && !isOwner) {
-                await api.channels.createMessage(config.log_channel_id,
-                    logActionMessage(userId, config.honeypot_channel_id, config.action, customMessages?.log_message, moderatedCount)
-                );
+                await api.channels.createMessage(config.log_channel_id, {
+                    ...logActionMessage(userId, config.honeypot_channel_id, config.action, customMessages?.log_message, moderatedCount),
+                    allowed_mentions: { users: [userId] },
+                });
             } else if (isOwner) {
                 await api.channels.createMessage(config.log_channel_id || config.honeypot_channel_id, {
                     content: `⚠️ User <@${userId}> triggered the honeypot, but they are the **server owner** so I cannot ${config.action} them.\n-# In anycase **ensure my role is higher** than people’s highest role and that I have **ban members** permission so I can ${config.action} for actual cases.`,
-                    // allowed_mentions: {},
+                    allowed_mentions: { users: [userId] },
+                    message_reference: reply
                 });
             } else if (failed === "unban" && config.action === "softban") {
                 await api.channels.createMessage(config.log_channel_id || config.honeypot_channel_id, {
                     content: `⚠️ User <@${userId}> triggered the honeypot, but I failed to **fully** softban them.\n-# They may still be banned but you can manually unban them in server settings.`,
-                    allowed_mentions: {},
+                    allowed_mentions: { users: [userId] },
+                    message_reference: reply
                 });
                 await emojiReact;
             } else if (failed) {
                 await api.channels.createMessage(config.log_channel_id || config.honeypot_channel_id, {
                     content: `⚠️ User <@${userId}> triggered the honeypot, but I **failed** to ${config.action} them.\n-# Please check my permissions to **ensure my role is higher** than their highest role and that I have **ban members** permission.`,
-                    allowed_mentions: {},
+                    allowed_mentions: { users: [userId] },
+                    message_reference: reply
                 });
                 await emojiReact;
             }

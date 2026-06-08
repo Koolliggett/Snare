@@ -236,7 +236,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     if (newConfig.experiments.includes("timeout-first")) {
                         if (memberPerms && !hasPermission(BigInt(memberPerms), PermissionFlagsBits.ModerateMembers)) {
                             await api.interactions.reply(interaction.id, interaction.token, {
-                                content: `You need the Moderate Members permission to enable the "Timeout First" experiment.\n-# No settings have been changed.`,
+                                content: `You need the Timeout Members permission to enable the "Timeout First" experiment.\n-# No settings have been changed.`,
                                 allowed_mentions: {},
                                 flags: MessageFlags.Ephemeral,
                             });
@@ -244,7 +244,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                         }
                         if (!hasPermission(BigInt(interaction.app_permissions), PermissionFlagsBits.ModerateMembers)) {
                             await api.interactions.reply(interaction.id, interaction.token, {
-                                content: `I need the Moderate Members permission to enable the "Timeout First" experiment.\n-# No settings have been changed.`,
+                                content: `I need the Timeout Members permission to enable the "Timeout First" experiment.\n-# No settings have been changed.`,
                                 allowed_mentions: {},
                                 flags: MessageFlags.Ephemeral,
                             });
