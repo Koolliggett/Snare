@@ -7,6 +7,7 @@ import { addToDeleteMessageCache, getCommandIdCache, removeFromDeleteMessageCach
 import randomChannelNames from "../utils/random-channel-names.yaml";
 import { getRoleMemberCounts } from "../utils/discord-api";
 import { DiscordAPIError } from "@discordjs/rest";
+import lookalikeChars from "../utils/lookalike-chars.yaml";
 
 const handler: EventHandler<GatewayDispatchEvents.GuildCreate> = {
     event: GatewayDispatchEvents.GuildCreate,
@@ -74,11 +75,11 @@ const handler: EventHandler<GatewayDispatchEvents.GuildCreate> = {
 };
 
 async function findOrCreateHoneypotChannel(api: API | API2, guild: GatewayGuildCreateDispatchData): Promise<{ id: string, new?: true | undefined }> {
-    const channel = guild.channels.find((c) => c.name === "honeypot" && c.type === ChannelType.GuildText);
+    const channel = guild.channels.find((c) => normalizeText(c.name) === "honeypot" && c.type === ChannelType.GuildText);
     if (channel) return { id: channel.id };
 
     const newChannel = await api.guilds.createChannel(guild.id, {
-        name: "honeypot",
+        name: `h${obfuscateText("oneypot", 0.3)}`,
         type: ChannelType.GuildText,
         position: guild.channels.length + 1,
     }, {
@@ -241,6 +242,38 @@ function getPermissionsForMember(roles: APIRole[], memberRoles: string[]) {
 
 function hasPermission(permissions: bigint, permissionBit: bigint) {
     return (permissions & permissionBit) === permissionBit || (permissions & PermissionFlagsBits.Administrator) === permissionBit;
+}
+
+const lookalikesData = lookalikeChars as Record<string, string[] | string>;
+const reverseLookalikeData: Record<string, string> = {};
+for (const [canonicalChar, value] of Object.entries(lookalikesData)) {
+    if (Array.isArray(value)) {
+        for (const variant of value) reverseLookalikeData[variant] = canonicalChar;
+    } else if (typeof value === "string") {
+        reverseLookalikeData[value] = canonicalChar;
+    }
+};
+
+export function obfuscateText(str: string, chance: number = 0.3): string {
+    let result = '';
+    for (const char of str) {
+        const variants = lookalikesData[char];
+        if (variants && variants.length > 0 && Math.random() < chance) {
+            const randomIndex = variants.length === 1 ? 0 : Math.floor(Math.random() * variants.length);
+            result += variants[randomIndex];
+        } else {
+            result += char;
+        }
+    }
+    return result;
+}
+
+export function normalizeText(str: string): string {
+    let result = '';
+    for (const char of str) {
+        result += reverseLookalikeData[char] || char;
+    }
+    return result;
 }
 
 export default handler;
