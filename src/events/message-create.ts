@@ -1,9 +1,9 @@
-import { GatewayDispatchEvents, type RESTAPIMessageReference, RESTJSONErrorCodes, type APIMessage } from "discord-api-types/v10";
+import { GatewayDispatchEvents, type RESTAPIMessageReference, RESTJSONErrorCodes, type APIMessage, MessageReferenceType } from "discord-api-types/v10";
 import type { EventHandler } from "./events";
 import type { API } from "@discordjs/core";
 import type { API as API2 } from "@discordjs/core/http-only";
 import { getDmChannelCache, getGuildInfo, getSubscribedChannelCache, setDmChannelCache, setSubscribedChannelCache } from "../utils/cache";
-import { CUSTOM_EMOJI_ID } from "../utils/constants";
+import { CUSTOM_EMOJI_ID, HAS_MESSAGE_INTENT } from "../utils/constants";
 import { honeypotUserDMMessage, honeypotWarningMessage, logActionMessage } from "../utils/messages";
 import { DiscordAPIError } from "@discordjs/rest";
 import { styleText } from "node:util";
@@ -69,25 +69,28 @@ const onMessage = async (
 
         if (config.action === 'disabled') return;
 
-        // let forwardPromise = null as null | Promise<any>;
-        // if (config.experiments.includes("forward-message") && config.log_channel_id && messageId) {
-        //     // intentionally not awaited as in theory we can do DM and this at same time (and avoid extra wait-time)
-        //     forwardPromise = api.channels.createMessage(config.log_channel_id, {
-        //         message_reference: {
-        //             type: MessageReferenceType.Forward,
-        //             channel_id: channelId,
-        //             message_id: messageId,
-        //             guild_id: guildId,
-        //         }
-        //     }).catch(err => console.log(`Failed to forward message to log channel: ${err}`));
-        // }
+        const preActionPromise = Bun.sleep(2000)
+        const preActionAbort = AbortSignal.timeout(3500);
+
+        let forwardPromise = null as null | Promise<any>;
+        if (HAS_MESSAGE_INTENT && config.experiments.includes("forward-message") && config.log_channel_id && messageId) {
+            // intentionally not awaited as in theory we can do DM and this at same time (and avoid extra wait-time)
+            forwardPromise = api.channels.createMessage(config.log_channel_id, {
+                message_reference: {
+                    type: MessageReferenceType.Forward,
+                    channel_id: channelId,
+                    message_id: messageId,
+                    guild_id: guildId,
+                }
+            }).catch(err => console.log(`Failed to forward message to log channel: ${err}`));
+        }
 
         let timeoutPromise = null as null | Promise<any>;
         if (config.experiments.includes("timeout-first")) {
             // intentionally not awaited as in theory we can do DM and this at same time (and avoid extra wait-time)
             timeoutPromise = api.guilds.editMember(guildId, userId,
                 { communication_disabled_until: new Date(Date.now() + 3_600_000).toISOString() },
-                { reason: `Triggered honeypot -> timeout for 1hr before ${config.action}`, signal: AbortSignal.timeout(3000) }
+                { reason: `Triggered honeypot -> timeout for 1hr before ${config.action}`, signal: preActionAbort }
             ).then(() => Bun.sleep(50))
                 .catch(err => console.log(`Failed to timeout user before ${config.action}: ${err}`));
         }
@@ -95,45 +98,46 @@ const onMessage = async (
         const customMessages = await db.getHoneypotMessages(guildId);
 
         // should DM user first before banning so that discord has less reason to block it
-        let dmMessage: APIMessage | null = null;
         let isOwner = false;
-        try {
-            const timeout = AbortSignal.timeout(2500);
-            const guild = await getGuildInfo(api, guildId, timeout, redis).catch(() => null);
-            isOwner = guild?.ownerId === userId;
-            if (!config.experiments.includes("no-dm")) {
-                let dmChannel = redis && await getDmChannelCache(userId, redis);
-                if (!dmChannel) {
-                    ({ id: dmChannel } = await api.users.createDM(userId, { signal: timeout }));
-                    if (redis) setDmChannelCache(userId, dmChannel, redis);
+        const dmMessage: Promise<APIMessage | null> = (async () => {
+            try {
+                const guild = await getGuildInfo(api, guildId, preActionAbort, redis).catch(() => null);
+                isOwner = guild?.ownerId === userId;
+                if (!config.experiments.includes("no-dm")) {
+                    let dmChannel = redis && await getDmChannelCache(userId, redis);
+                    if (!dmChannel) {
+                        ({ id: dmChannel } = await api.users.createDM(userId, { signal: preActionAbort }));
+                        if (redis) setDmChannelCache(userId, dmChannel, redis);
+                    }
+                    const reinviteCode = config.experiments.includes("reinvite") && await db.getReinvite(guildId);
+                    const link = `https://discord.com/channels/${guildId}/${channelId}/${config.honeypot_msg_id || messageId || ""}`;
+                    const dmContent = honeypotUserDMMessage(
+                        config.action,
+                        guild?.name ?? guildId!,
+                        guild?.isDiscoverable ? `https://discord.com/servers/${guildId}` : undefined,
+                        link,
+                        reinviteCode ? `https://discord.gg/${reinviteCode}` : null,
+                        isOwner,
+                        customMessages?.dm_message
+                    );
+                    return await api.channels.createMessage(dmChannel, dmContent, { signal: preActionAbort });
                 }
-                const reinviteCode = config.experiments.includes("reinvite") && await db.getReinvite(guildId);
-                const link = `https://discord.com/channels/${guildId}/${channelId}/${config.honeypot_msg_id || messageId || ""}`;
-                const dmContent = honeypotUserDMMessage(
-                    config.action,
-                    guild?.name ?? guildId!,
-                    guild?.isDiscoverable ? `https://discord.com/servers/${guildId}` : undefined,
-                    link,
-                    reinviteCode ? `https://discord.gg/${reinviteCode}` : null,
-                    isOwner,
-                    customMessages?.dm_message
-                );
-                dmMessage = await api.channels.createMessage(dmChannel, dmContent, { signal: timeout })
+            } catch (err) {
+                /* Ignore DM errors (user has DMs closed, etc.) */
+                if (`${err}` === "AbortError: The operation was aborted." || `${err}` === "Error: Request aborted manually") {
+                    console.log(styleText("dim", `Failed to send DM to user: ${err}`));
+                } else if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.CannotSendMessagesToThisUser || err.code === RESTJSONErrorCodes.CannotSendMessagesToThisUserDueToHavingNoMutualGuilds)) {
+                    console.log(styleText("dim", `Failed to send DM to user: ${err}`));
+                } else {
+                    console.log(`Failed to send DM to user: ${err}`)
+                }
             }
-        } catch (err) {
-            /* Ignore DM errors (user has DMs closed, etc.) */
-            if (`${err}` === "AbortError: The operation was aborted." || `${err}` === "Error: Request aborted manually") {
-                console.log(styleText("dim", `Failed to send DM to user: ${err}`));
-            } else if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.CannotSendMessagesToThisUser || err.code === RESTJSONErrorCodes.CannotSendMessagesToThisUserDueToHavingNoMutualGuilds)) {
-                console.log(styleText("dim", `Failed to send DM to user: ${err}`));
-            } else {
-                console.log(`Failed to send DM to user: ${err}`)
-            }
-        }
+            return null;
+        })();
 
-        // we prob will win the delete before the ban, so no point delaying the ban to wait for msg to create (and not the biggest deal if it fails)
-        // if (forwardPromise) await forwardPromise;
-        if (timeoutPromise) await Promise.race([timeoutPromise, Bun.sleep(1000)]); // if timeout fails, we don't want to wait too long before banning
+        // we prob will win forwarding before the ban's delete comes into action, so no point delaying the ban to wait for msg to create (and not the biggest deal if it fails)
+        // also if timeout fails, we don't want to wait too long before banning
+        await Promise.race([preActionPromise, dmMessage, timeoutPromise, forwardPromise].filter(p => !!p));
 
         let failed: boolean | "permissions" | "owner" | "unban" = false;
         if (!isOwner) try {
