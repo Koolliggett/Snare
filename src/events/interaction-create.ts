@@ -480,7 +480,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                         {
                             type: ComponentType.TextDisplay,
                             content: "Set custom messages for the honeypot bot:\n" +
-                                "-# - You can use the variables in your messages shown in template/default text\n" +
+                                "-# - You can use the variables in your messages shown in template/default text - [see all](https://honeypot.riskymh.dev/docs/configuration#message-variables)\n" +
                                 "-# - If you leave the textbox empty, then it'll reset to default\n" +
                                 "-# - Make sure to keep the messages clear and informative!"
                         },
@@ -748,7 +748,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                 },
                                 {
                                     type: ComponentType.TextDisplay,
-                                    content: "-# Thank you for using [Honeypot Bot](https://discord.com/discovery/applications/1450060292716494940) to keep your servers safe from unwanted bots!"
+                                    content: "-# Thank you for using [Honeypot Bot](https://honeypot.riskymh.dev) to keep your servers safe from unwanted bots!"
                                 },
                                 {
                                     type: ComponentType.ActionRow,
