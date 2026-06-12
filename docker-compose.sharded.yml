@@ -12,7 +12,6 @@ services:
      environment:
        DISCORD_TOKEN: ${DISCORD_TOKEN:?REQUIRED}
        REDIS_URL: redis+unix:///redis/redis.sock
-       HAS_MESSAGE_INTENT: ${HAS_MESSAGE_INTENT} # optional
        REPLICA_ID: '{{.Task.Slot}}' 
        REPLICA_COUNT: 1 # ${WS_REPLICAS:-1}
        NODE_ENV: production
@@ -49,6 +48,7 @@ services:
      environment:
        DATABASE_URL: ${DATABASE_URL:-sqlite:///data/honeypot.sqlite}
        DISCORD_TOKEN: ${DISCORD_TOKEN:?REQUIRED}
+       HAS_MESSAGE_INTENT: ${HAS_MESSAGE_INTENT:-false} # optional
        NODE_ENV: production
        FORCE_COLOR: 1
        REDIS_URL: redis+unix:///redis/redis.sock

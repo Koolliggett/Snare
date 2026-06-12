@@ -24,38 +24,37 @@ const redisPubSub = getRedis();
 const rest = new REST().setToken(token!);
 
 const getShards = async () => (await rest.get(Routes.gatewayBot()) as RESTGetAPIGatewayBotResult).shards;
-const getManager = (shards: number, sessionCache: Map<number, SessionInfo> = new Map()) => new WebSocketManager({
-    token: token,
+const getManager = (shards: number, sessionCache: Map<number, SessionInfo | null> = new Map()) => new WebSocketManager({
+    token,
     intents: GatewayIntentBits.Guilds | GatewayIntentBits.GuildMessages,
     fetchGatewayInformation: () => rest.get(Routes.gatewayBot()) as Promise<RESTGetAPIGatewayBotResult>,
     compression: process.env.COMPRESS_WEBSOCKETS === "true" ? CompressionMethod.ZstdNative : null,
     shardCount: shards,
     initialPresence,
     retrieveSessionInfo: (shardId) => sessionCache.get(shardId) ?? null,
-    updateSessionInfo: (shardId, sessionInfo) => sessionInfo
-        ? void sessionCache.set(shardId, sessionInfo)
-        : void sessionCache.delete(shardId),
+    updateSessionInfo: (shardId, sessionInfo) => void sessionCache.set(shardId, sessionInfo ?? null)
 });
 const managerState = "a" // update this when initial presense or intents changes (ie require shards to reconnect)
 
-const sessionInfoCache: Record<number, Map<number, SessionInfo>> = {};
-async function getSessionStorageFromRedis(shardCount: number, preferCompression = false) {
-    const _raw = await redis.hmget("discord_ws_sessions", `${managerState}_${shardCount}`, `Z_${managerState}_${shardCount}`, shardCount.toString());
-    const raw = _raw[0] || _raw[1] || _raw[2];
+const sessionInfoCache: Record<number, Map<number, SessionInfo | null>> = {};
+async function getSessionStorageFromRedis(_shardCount = 1) {
+    const _raw = await redis.hmget("discord_ws_sessions", managerState, `${managerState}_${_shardCount}`, `Z_${managerState}_${_shardCount}`, _shardCount.toString());
+    const raw = _raw[0] || _raw[1] || _raw[2] || _raw[3];
     if (raw) {
-        const data = JSON.parse(raw) as Record<string, SessionInfo>;
+        const data = JSON.parse(raw) as Record<string, SessionInfo | null>;
         return new Map(Object.entries(data).map(([k, v]) => [parseInt(k), v]));
     }
     return null;
 }
-async function saveSessionStorageToRedis(shardCount: number, sessionStorage: Map<number, SessionInfo>, compression: boolean = false) {
+async function saveSessionStorageToRedis(sessionStorage: Map<number, SessionInfo | null>) {
     const obj = Object.fromEntries(sessionStorage);
     const threeMinSecs = 3 * 60;
-    await redis.hsetex("discord_ws_sessions", "EX", threeMinSecs, "FIELDS", 1, `${compression ? 'Z_' : ''}${managerState}_${shardCount}`, JSON.stringify(obj));
+    await redis.hsetex("discord_ws_sessions", "EX", threeMinSecs, "FIELDS", 1, managerState, JSON.stringify(obj));
 }
 
-let shardCount = await getShards();
-sessionInfoCache[shardCount] = await getSessionStorageFromRedis(shardCount) ?? new Map();
+const prevSessionStorage = (await getSessionStorageFromRedis() || await getSessionStorageFromRedis(await getShards())) ?? new Map();
+sessionInfoCache[prevSessionStorage.size] = prevSessionStorage;
+let shardCount = prevSessionStorage.size || (await getShards());
 let manager = getManager(shardCount, sessionInfoCache[shardCount]);
 let isResharding = null as null | [WebSocketManager, number /* shard count */];
 let reshardedId = 0;
@@ -63,9 +62,16 @@ let reshardedId = 0;
 const onExit = async (type: string) => {
     console.log(`Received ${type}, shutting down...`);
     const possibleSessionCache = sessionInfoCache[shardCount];
-    if (possibleSessionCache) await saveSessionStorageToRedis(shardCount, possibleSessionCache, manager.options.compression === CompressionMethod.ZlibNative).catch((err) => {
-        console.error(`Error saving session storage to Redis on shutdown: ${err}`);
-    });
+    if (possibleSessionCache) {
+        try {
+            for (let i = 0; i < shardCount; i++) {
+                if (!possibleSessionCache.has(i)) possibleSessionCache.set(i, null);
+            }
+            await saveSessionStorageToRedis(possibleSessionCache);
+        } catch (err) {
+            console.error(`Error saving session storage to Redis on shutdown: ${err}`);
+        }
+    }
     process.exit(0);
 }
 process.on('SIGTERM', onExit.bind(null, "SIGTERM"));
@@ -174,7 +180,14 @@ const checkForResharding = async (force = false) => {
             manager.addListener(WebSocketShardEvents.Error, shardError);
             if (process.env.NODE_ENV === "development") manager.addListener(WebSocketShardEvents.Debug, shardDebug);
             manager.addListener(WebSocketShardEvents.Resumed, shardResume);
-            await newManager.connect();
+            try {
+                await newManager.connect();
+            } catch (err) {
+                console.error(`Error connecting new WebSocket Manager during resharding: ${err}`);
+                newManager.destroy();
+                isResharding = null;
+                return;
+            }
 
             // wait for all new shards to be ready, then kill old manager
             while (shardsConnected.size !== newShardCount) {
@@ -193,7 +206,8 @@ const checkForResharding = async (force = false) => {
             manager.removeAllListeners(WebSocketShardEvents.Dispatch);
             manager.destroy();
             manager = newManager;
-            delete sessionInfoCache[shardCount]
+            sessionInfoCache[shardCount]?.clear();
+            delete sessionInfoCache[shardCount];
             shardCount = newShardCount;
             isResharding = null;
         }
@@ -206,7 +220,16 @@ console.log(`Starting WebSocket Manager with ${shardCount} shards...`);
 if (sessionInfoCache[shardCount]?.size) {
     console.log("Found existing session info in Redis, attempting to resume sessions...");
 }
-await manager.connect();
+try {
+    await manager.connect();
+} catch (err) {
+    console.error(`Error connecting WebSocket Manager: ${err}`);
+    await redis.del("discord_ws_sessions").catch((err) => {
+        console.error(`Error clearing session storage in Redis after failed connection attempt: ${err}`);
+    });
+    process.exit(1);
+}
 
+if (sessionInfoCache[shardCount]?.size) checkForResharding();
 
 setInterval(checkForResharding, 12 * 60 * 60 * 1000); // twice every day
