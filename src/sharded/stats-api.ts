@@ -7,7 +7,7 @@ const redisPubSub = new Bun.RedisClient(process.env.REDIS_URL!);
 
 let cacheResult = null as null | Awaited<ReturnType<typeof getFullStats>>;
 let cacheTimestamp = 0;
-const cacheDuration = 2 * 1000; // 2 seconds
+const cacheDuration = 30 * 1000; // 30 seconds
 
 async function getStats() {
     const now = Date.now();
@@ -101,7 +101,7 @@ function scheduleNextPublish() {
     const now = new Date();
     const seconds = now.getUTCSeconds();
     const millis = now.getUTCMilliseconds();
-    const nextInterval = 10 - (seconds % 10);
+    const nextInterval = 5 - (seconds % 5);
     const msUntilNext = (nextInterval * 1000) - millis;
     statsUpdateTimer = setTimeout(async () => {
         if (pendingStatsUpdate) {

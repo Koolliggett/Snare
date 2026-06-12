@@ -4,12 +4,12 @@ FROM oven/bun:alpine AS builder
 WORKDIR /app
 
 COPY package.json bun.lock ./
-# RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile && bunx bun@latest --version
-RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile 
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile && bunx bun@canary --version
+# RUN --mount=type=cache,target=/root/.bun/install/cache bun install --frozen-lockfile 
 
 COPY src ./src
-# RUN --mount=type=cache,target=/root/.bun/install/cache bunx bun@latest --bun run build:stats:standalone
-RUN bun run build:stats:standalone
+RUN --mount=type=cache,target=/root/.bun/install/cache bunx bun@canary --bun run build:stats:standalone
+# RUN bun run build:stats:standalone
 
 # Production stage
 FROM alpine:latest AS production
