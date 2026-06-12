@@ -373,6 +373,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     }
                 }
 
+                let inviteCode = null as string | null;
                 if (newConfig.experiments.includes("reinvite") && (!prevConfig?.experiments.includes("reinvite") || addedChannels.length > 0)) {
                     const inviteChannelId = selectedChannelIds[0]!;
                     try {
@@ -384,7 +385,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                             reason: "Creating invite for reinvite experiment",
                             signal: AbortSignal.timeout(1_000),
                         });
-                        await db.setReinvite(guildId, invite.code);
+                        inviteCode = invite.code;
                     } catch (err) {
                         for (const [cid, mid] of msgIds) {
                             if (mid) api.channels.deleteMessage(cid, mid, { reason: "Cleaning up honeypot messages after reinvite experiment failure" }).catch(() => null);
@@ -445,6 +446,8 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     channel_id: id,
                     msg_id: msgIds.get(id) ?? null,
                 })));
+                if (inviteCode) await db.setReinvite(guildId, inviteCode);
+
 
                 // best to be 100% accurate (ie edit from at right time where there is technically another channel chosen)
                 const allChannels = await db.getChannels(guildId);

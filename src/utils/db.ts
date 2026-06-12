@@ -494,15 +494,15 @@ export async function getFullStats(): Promise<{
   }
 
   return {
-    guilds: meta.guilds,
-    moderations: meta.moderations,
-    last7dModerations,
-    last7dEngagedGuilds: last7dGuilds.size,
+    guilds: Number(meta.guilds),
+    moderations: Number(meta.moderations),
+    last7dModerations: Number(last7dModerations),
+    last7dEngagedGuilds: Number(last7dGuilds.size),
     dailyStats: Array.from(dailyMap.entries())
       .map(([date, v]) => ({
         date,
-        moderations: v.moderations,
-        engagedGuilds: v.guilds.size,
+        moderations: Number(v.moderations),
+        engagedGuilds: Number(v.guilds.size),
       })),
   };
 }
