@@ -102,7 +102,13 @@ const onMessage = async (
                 { communication_disabled_until: new Date(Date.now() + 3_600_000).toISOString() },
                 { reason: `Triggered honeypot -> timeout for 1hr before ${config.action}`, signal: preActionAbort }
             ).then(() => Bun.sleep(50))
-                .catch(err => console.log(`Failed to timeout user before ${config.action}: ${err}`));
+                .catch(err => {
+                    if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.MissingPermissions)) {
+                        console.log(`Failed to timeout user before ${config.action}: ${err}`);
+                    } else {
+                        console.log(`Failed to timeout user before ${config.action}: ${err}`);
+                    }
+                });
         }
 
         const customMessages = await db.getHoneypotMessages(guildId);
@@ -180,11 +186,12 @@ const onMessage = async (
                         { reason: "Triggered honeypot -> softban (kick) 2/2" }
                     );
                 } catch (err) {
-                    console.log(`Failed to unban user after ban: ${err}`);
                     // maybe discord hasn't banned yet and is throwing unknown ban, so try again after a short wait
                     if (err instanceof DiscordAPIError && err.code === RESTJSONErrorCodes.UnknownBan) {
+                        console.log(styleText("dim", `Failed to unban user after ban: ${err}`));
                         // If its still throwing unknown ban, then the user is likely already unbanned by some external force
                     } else {
+                        console.log(`Failed to unban user after ban: ${err}`);
                         failed = "unban";
                     }
                 }
@@ -290,10 +297,14 @@ const onMessage = async (
                 honeypotWarningMessage(moderatedCount, config.action, customMessages?.warning_message)
             );
         } catch (err) {
-            if (err instanceof DiscordAPIError && err.code == RESTJSONErrorCodes.UnknownMessage) {
-                console.log(styleText("dim", `Failed to update honeypot message: ${err}`));
+            const discordError = err instanceof DiscordAPIError ? err : null;
+            if (discordError && discordError.code == RESTJSONErrorCodes.UnknownMessage) {
+                console.log(styleText("dim", `Failed to update honeypot message (after banning): ${err}`));
                 await db.unsetHoneypotMsg(guildId, matchedChannel.msg_id!);
-            } else console.log(`Failed to update honeypot message: ${err}`);
+            } else if (discordError && (discordError.code == RESTJSONErrorCodes.MissingPermissions || discordError.code == RESTJSONErrorCodes.MissingAccess)) {
+                console.log(styleText("dim", `Failed to update honeypot message (after banning): ${err}`));
+                await db.unsetHoneypotMsg(guildId, matchedChannel.msg_id!);
+            } else console.log(`Failed to update honeypot message (after banning): ${err}`);
         }
 
     } catch (err) {

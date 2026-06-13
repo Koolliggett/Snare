@@ -104,7 +104,7 @@ export async function initDb() {
       await db`PRAGMA foreign_keys = ON;`;
       await db`PRAGMA journal_mode = WAL;`;
       await db`PRAGMA busy_timeout = 5000;`;
-      await db`PRAGMA wal_autocheckpoint = 1000;`;
+      await db`PRAGMA wal_autocheckpoint = 500;`;
       await db`PRAGMA synchronous = NORMAL;`;
     } catch (err) {
       console.error("Failed to set PRAGMA settings:", err);
@@ -139,7 +139,9 @@ export async function initDb() {
     }
   }
 
-  if (appliedSet.size > 0 && appliedSet.size !== migrations.length) {
+  const latestMigration = migrations[migrations.length - 1];
+  const latestAppliedMigration = appliedSet.size > 0 ? Math.max(...applied.map(r => Number(r.version))) : null;
+  if (appliedSet.size > 0 && latestAppliedMigration! < (latestMigration?.version || 0)) {
     if (db.options.adapter === "sqlite") await db`VACUUM;`.catch(() => { });
     console.log(`[db migrate] All migrations applied successfully`);
   }
@@ -326,7 +328,7 @@ export async function setReinvite(guild_id: string, invite: string | false) {
   `;
 }
 
-
+let statsDb = null as SQL | null;
 export async function getFullStats(): Promise<{
   guilds: number;
   moderations: number;
@@ -334,6 +336,13 @@ export async function getFullStats(): Promise<{
   last7dEngagedGuilds: number;
   dailyStats: { date: string; moderations: number; engagedGuilds: number; }[];
 }> {
+  statsDb ||= new SQL("", {
+    ...db.options,
+    readonly: true,
+    bigint: false,
+    safeIntegers: false,
+  });
+
   const now = new Date();
 
   const sevenDaysAgo = new Date();
@@ -347,12 +356,12 @@ export async function getFullStats(): Promise<{
   const todayStartStr = now.toISOString().substring(0, "YYYY-MM-DD".length) + ' 00:00:00';
 
   const [[meta], events] = await Promise.all([
-    db`
+    statsDb`
       SELECT
         (SELECT COUNT(*) FROM honeypot_config) AS guilds,
         (SELECT COUNT(*) FROM honeypot_events) AS moderations
     `,
-    db`
+    statsDb`
       SELECT timestamp, guild_id
       FROM honeypot_events
       WHERE timestamp >= ${fourteenDaysAgoStr}
@@ -394,13 +403,13 @@ export async function getFullStats(): Promise<{
   return {
     guilds: Number(meta.guilds),
     moderations: Number(meta.moderations),
-    last7dModerations: Number(last7dModerations),
-    last7dEngagedGuilds: Number(last7dGuilds.size),
+    last7dModerations,
+    last7dEngagedGuilds: last7dGuilds.size,
     dailyStats: Array.from(dailyMap.entries())
       .map(([date, v]) => ({
         date,
-        moderations: Number(v.moderations),
-        engagedGuilds: Number(v.guilds.size),
+        moderations: v.moderations,
+        engagedGuilds: v.guilds.size,
       })),
   };
 }
