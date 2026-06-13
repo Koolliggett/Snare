@@ -37,6 +37,18 @@ const server = Bun.serve({
                 });
             }
         },
+        "/stats": {
+            GET: async () => {
+                const stats = await getStats();
+                return new Response(JSON.stringify(stats), {
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Access-Control-Allow-Origin": "*",
+                        // "Cache-Control": "public, max-age=30, stale-while-revalidate=600",
+                    }
+                });
+            }
+        },
         "/ws": {
             GET: (req, server) => {
                 if (server.upgrade(req)) return
