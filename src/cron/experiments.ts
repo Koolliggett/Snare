@@ -77,6 +77,9 @@ const cron: Cron = {
                             if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.MissingAccess || err.code === RESTJSONErrorCodes.MissingPermissions)) {
                                 console.log(styleText("dim", `Failed to send failed message for channel warmer experiment: ${err}`));
                                 // todo: if this happens enough times then remove the log channel from the config or something
+                            } else if (config.log_channel_id && err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.UnknownChannel)) {
+                                db.unsetLogChannel(config.guild_id, config.log_channel_id);
+                                console.log(styleText("dim", `Failed to send failed message for random channel name experiment: ${err}`));
                             } else {
                                 console.log(`Failed to send failed message for channel warmer experiment: ${err}`);
                             }
@@ -116,6 +119,9 @@ const cron: Cron = {
                             if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.MissingAccess || err.code === RESTJSONErrorCodes.MissingPermissions)) {
                                 console.log(styleText("dim", `Failed to send failed message for random channel name experiment: ${err}`));
                                 // todo: if this happens enough times then remove the log channel from the config or something
+                            } else if (config.log_channel_id && err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.UnknownChannel)) {
+                                db.unsetLogChannel(config.guild_id, config.log_channel_id);
+                                console.log(styleText("dim", `Failed to send failed message for random channel name experiment: ${err}`));
                             } else {
                                 console.log(`Failed to send failed message for random channel name experiment: ${err}`);
                             }

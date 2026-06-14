@@ -134,7 +134,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
 
                 const interactionCreatedAt = getDiscordDate(interaction.id).getTime();
                 let deferredPromise = false as false | Promise<true>;
-                const deferTimeout = setTimeout(async () => {
+                const deferTimeout = setTimeout(() => {
                     deferredPromise = api.interactions.defer(interaction.id, interaction.token).then(() => true);
                 }, 2500 - (Date.now() - interactionCreatedAt));
 
@@ -383,7 +383,7 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                             unique: false,
                         }, {
                             reason: "Creating invite for reinvite experiment",
-                            signal: AbortSignal.timeout(1_000),
+                            signal: AbortSignal.timeout(20_000),
                         });
                         inviteCode = invite.code;
                     } catch (err) {
@@ -758,7 +758,11 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                 { signal: timeout }
                             );
                         } catch (err) {
-                            console.log(`Error sending example DM message: ${err}`);
+                            if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.CannotSendMessagesToThisUser || err.code === RESTJSONErrorCodes.CannotSendMessagesToThisUserDueToHavingNoMutualGuilds)) {
+                                console.log(styleText("dim", `Error sending example DM message: ${err}`));
+                            } else {
+                                console.log(`Error sending example DM message: ${err}`);
+                            }
                         }
                     }
                 }
