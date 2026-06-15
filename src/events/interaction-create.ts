@@ -243,22 +243,24 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     }
 
                     if (newConfig.experiments.includes("reinvite")) {
-                        if (memberPerms && !hasPermission(BigInt(memberPerms), PermissionFlagsBits.CreateInstantInvite)) {
+                        const inviteChannel = interaction.data.resolved?.channels?.[selectedChannelIds[0]!];
+                        if (inviteChannel?.permissions && !hasPermission(BigInt(inviteChannel?.permissions), PermissionFlagsBits.CreateInstantInvite)) {
                             await interactionReply({
-                                content: `You need the Create Instant Invite permission to enable the "Reinvite" experiment.\n-# No settings have been changed.`,
+                                content: `You need the Create Invite permission in <#${inviteChannel.id}> to enable the "Reinvite" experiment.\n-# No settings have been changed.`,
                                 allowed_mentions: {},
                                 flags: MessageFlags.Ephemeral,
                             });
                             return;
                         }
-                        if (!hasPermission(BigInt(interaction.app_permissions), PermissionFlagsBits.CreateInstantInvite)) {
-                            await interactionReply({
-                                content: `I need the Create Instant Invite permission to enable the "Reinvite" experiment.\n-# No settings have been changed.`,
-                                allowed_mentions: {},
-                                flags: MessageFlags.Ephemeral,
-                            });
-                            return;
-                        }
+                        // // issue here is app_permissions is based on the channel it was ran from, so this can have reliability issues with per channel overrides
+                        // if (!hasPermission(BigInt(interaction.app_permissions), PermissionFlagsBits.CreateInstantInvite)) {
+                        //     await interactionReply({
+                        //         content: `I need the Create Invite permission to enable the "Reinvite" experiment.\n-# No settings have been changed.`,
+                        //         allowed_mentions: {},
+                        //         flags: MessageFlags.Ephemeral,
+                        //     });
+                        //     return;
+                        // }
                     }
 
                     if (newConfig.experiments.includes("timeout-first")) {

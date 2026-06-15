@@ -70,20 +70,24 @@ const cron: Cron = {
                         } else {
                             console.log(`Channel warmer experiment execution failed: ${err}`);
                         }
-                        await api.channels.createMessage(config.log_channel_id || channel.channel_id, {
-                            content: `⚠️ There was a problem sending a message to the <#${channel.channel_id}> channel for the "Channel Warmer" experiment. Please check my permissions.`,
-                            allowed_mentions: {},
-                        }).catch(err => {
-                            if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.MissingAccess || err.code === RESTJSONErrorCodes.MissingPermissions)) {
-                                console.log(styleText("dim", `Failed to send failed message for channel warmer experiment: ${err}`));
-                                // todo: if this happens enough times then remove the log channel from the config or something
-                            } else if (config.log_channel_id && err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.UnknownChannel)) {
-                                db.unsetLogChannel(config.guild_id, config.log_channel_id);
-                                console.log(styleText("dim", `Failed to send failed message for random channel name experiment: ${err}`));
-                            } else {
-                                console.log(`Failed to send failed message for channel warmer experiment: ${err}`);
-                            }
-                        });
+
+                        // there is no way that we can send msg in honeypot channel (as discovered above)
+                        if (config.log_channel_id) {
+                            await api.channels.createMessage(config.log_channel_id, {
+                                content: `⚠️ There was a problem sending a message to the <#${channel.channel_id}> channel for the "Channel Warmer" experiment. Please check my permissions.`,
+                                allowed_mentions: {},
+                            }).catch(err => {
+                                if (err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.MissingAccess || err.code === RESTJSONErrorCodes.MissingPermissions)) {
+                                    console.log(styleText("dim", `Failed to send failed message for channel warmer experiment: ${err}`));
+                                    // todo: if this happens enough times then remove the log channel from the config or something
+                                } else if (config.log_channel_id && err instanceof DiscordAPIError && (err.code === RESTJSONErrorCodes.UnknownChannel)) {
+                                    db.unsetLogChannel(config.guild_id, config.log_channel_id);
+                                    console.log(styleText("dim", `Failed to send failed message for random channel name experiment: ${err}`));
+                                } else {
+                                    console.log(`Failed to send failed message for channel warmer experiment: ${err}`);
+                                }
+                            });
+                        }
                     }
                 }
             }
