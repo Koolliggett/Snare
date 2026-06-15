@@ -2,7 +2,7 @@ import { GatewayDispatchEvents, type RESTAPIMessageReference, RESTJSONErrorCodes
 import type { EventHandler } from "./events";
 import type { API } from "@discordjs/core";
 import type { API as API2 } from "@discordjs/core/http-only";
-import { getDmChannelCache, getGuildInfo, getSubscribedChannelCache, setDmChannelCache, setSubscribedChannelCache } from "../utils/cache";
+import { getDmChannelCache, getGuildInfo, getIsAlreadyModerating, getSubscribedChannelCache, setDmChannelCache, setIsAlreadyModerating, setSubscribedChannelCache, unsetIsAlreadyModerating } from "../utils/cache";
 import { CUSTOM_EMOJI_ID, HAS_MESSAGE_INTENT } from "../utils/constants";
 import { honeypotUserDMMessage, honeypotWarningMessage, logActionMessage } from "../utils/messages";
 import { DiscordAPIError } from "@discordjs/rest";
@@ -78,6 +78,12 @@ const onMessage = async (
         ).catch(() => null);
 
         if (config.action === 'disabled') return;
+
+        // avoid double moderation if many messages are sent (easy if many honeypot channels)
+        if (redis) {
+            if (await getIsAlreadyModerating(guildId, userId, redis)) return;
+            setIsAlreadyModerating(guildId, userId, redis);
+        }
 
         const preActionPromise = Bun.sleep(2000)
         const preActionAbort = AbortSignal.timeout(3500);
@@ -241,6 +247,9 @@ const onMessage = async (
             await db.logModerateEvent(guildId, userId, matchedChannel.channel_id);
             redis?.publish("moderate_event", "+1");
         }
+
+        // if they rejoin server, let them be punished again
+        if (redis) unsetIsAlreadyModerating(guildId, userId, redis);
 
         const moderatedCount = await db.getModeratedCount(guildId, channels.length > 1 ? matchedChannel.channel_id : null);
 
