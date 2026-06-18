@@ -279,9 +279,16 @@ const onMessage = async (
                     message_reference: reply
                 });
                 await emojiReact;
-            } else if (failed) {
+            } else if (failed === "permissions") {
                 await api.channels.createMessage(config.log_channel_id || matchedChannel.channel_id, {
                     content: `⚠️ User <@${userId}> triggered the honeypot, but I **failed** to ${config.action} them.\n-# Please check my permissions to **ensure my role is higher** than their highest role and that I have **ban members** permission.`,
+                    allowed_mentions: { users: [userId] },
+                    message_reference: reply
+                });
+                await emojiReact;
+            } else if (failed) {
+                await api.channels.createMessage(config.log_channel_id || matchedChannel.channel_id, {
+                    content: `⚠️ User <@${userId}> triggered the honeypot, but I **failed** to ${config.action} them.\n-# This could be due to a transient Discord issue, or something unexpected. Please check my permissions in any case.`,
                     allowed_mentions: { users: [userId] },
                     message_reference: reply
                 });
