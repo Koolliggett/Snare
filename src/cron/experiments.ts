@@ -7,6 +7,13 @@ import type { Cron } from "./crons";
 import { DiscordAPIError } from "@discordjs/rest";
 import { styleText } from "node:util";
 
+function shardId(id: string, total: number): number {
+    let hash = 5381;
+    for (let i = 0; i < id.length; i++) {
+        hash = ((hash << 5) + hash + id.charCodeAt(i)) | 0;
+    }
+    return (hash >>> 0) % total;
+}
 
 export async function channelWarmerExperiment(api: API | API2, guildId: string, channelId: string) {
     const msg = await api.channels.createMessage(
@@ -46,16 +53,20 @@ export async function randomChannelNameExperiment(api: API | API2, guildId: stri
 }
 
 
+const TOTAL_SHARDS = 24;
+
 const cron: Cron = {
     name: "Experiment Runner",
-    frequency: "@daily",
+    frequency: "@hourly",
     run: async (api, db) => {
         // intentionally only run one at a time with delay to avoid rate limits (as least important feature)
+        const currentShard = new Date().getHours();
 
         // channel warmer experiment - send a msg and instantly delete it to keep channel active
         const channelWarmer = async () => {
             const guilds = await db.getGuildsWithExperiment("channel-warmer");
             for (const config of guilds) {
+                if (shardId(config.guild_id, TOTAL_SHARDS) !== currentShard) continue;
                 const channels = await db.getChannels(config.guild_id);
                 for (const channel of channels) {
                     try {
@@ -97,6 +108,7 @@ const cron: Cron = {
         const randomChannelName = async () => {
             const guilds = await db.getGuildsWithExperiment("random-channel-name");
             for (const config of guilds) {
+                if (shardId(config.guild_id, TOTAL_SHARDS) !== currentShard) continue;
                 const channels = await db.getChannels(config.guild_id);
                 for (const channel of channels) {
                     try {
