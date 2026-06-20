@@ -3,7 +3,7 @@ import type { EventHandler } from "./events";
 import type { API } from "@discordjs/core";
 import type { API as API2 } from "@discordjs/core/http-only";
 import { honeypotWarningMessage } from "../utils/messages";
-import { addToDeleteMessageCache, getCommandIdCache, removeFromDeleteMessageCache, setGuildInfoCache, setSubscribedChannelCache } from "../utils/cache";
+import { addToDeleteMessageCache, getCommandIdCache, invalidateGuildInfoCache, removeFromDeleteMessageCache, removeGuildSubscribedChannelCache, setGuildInfoCache, setSubscribedChannelCache } from "../utils/cache";
 import randomChannelNames from "../utils/random-channel-names.yaml";
 import { getRoleMemberCounts } from "../utils/discord-api";
 import { DiscordAPIError } from "@discordjs/rest";
@@ -80,6 +80,28 @@ const handler: EventHandler<GatewayDispatchEvents.GuildCreate> = {
                     }
                 }
             }
+
+            // see 25secs later if we are still there, if not then probably a ban or kick happened, so clean up cache
+            setTimeout(async () => {
+                // if config is already deleted, then no need to check
+                if (!await db.getConfig(guild.id)) return;
+
+                try {
+                    await api.guilds.getMember(guild.id, applicationId, { signal: AbortSignal.timeout(20_000) });
+                } catch (err) {
+                    const discordErr = err instanceof DiscordAPIError ? err : null;
+                    if (discordErr && (discordErr.code === RESTJSONErrorCodes.UnknownGuild)) {
+                        await db.deleteConfig(guild.id);
+                        invalidateGuildInfoCache(guild.id, redis);
+                        if (redis) removeGuildSubscribedChannelCache(guild.id, redis);
+                        redis?.publish("guild_count", "-1");
+                        console.log(`Bot was shortly kicked after addition (prob anti nuke bot)`);
+                    } else {
+                        console.log(`Failed to check if guild is still available after 10 seconds: ${err}`);
+                    }
+                }
+            }, 25_000);
+
         } catch (err) {
             console.log(`Error with GuildCreate handler: ${err}`);
         }
