@@ -827,6 +827,75 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                 });
             }
 
+            // button to show guild stats
+            else if (interaction.type === InteractionType.MessageComponent && interaction.data.custom_id === "moderated_count_button") {
+                const [guildStats, channels, { totalGuilds, totalModerated }] = await Promise.all([
+                    db.getGuildStats(guildId!),
+                    db.getChannels(guildId!),
+                    db.getStats(),
+                ]);
+
+                await api.interactions.reply(interaction.id, interaction.token, {
+                    flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
+                    allowed_mentions: {},
+                    components: [
+                        {
+                            type: ComponentType.Container,
+                            components: [
+                                {
+                                    type: ComponentType.TextDisplay,
+                                    content: `## ${CUSTOM_EMOJI} Honeypot Statistics ${CUSTOM_EMOJI}`,
+                                },
+                                {
+                                    type: ComponentType.TextDisplay,
+                                    content: [
+                                        "**Server Stats:**",
+                                        `Total moderated in this server: \`${guildStats.reduce((acc, stat) => acc + Number(stat.moderatedCount), 0).toLocaleString()}\``,
+                                        ...(channels.length === 1 ? "" : channels.map(chan => `- <#${chan.channel_id}>: \`${guildStats.find(s => s.channel_id === chan.channel_id)?.moderatedCount?.toLocaleString() || 0}\``)),
+                                    ].join("\n"),
+                                },
+                                {
+                                    type: ComponentType.TextDisplay,
+                                    content: [
+                                        "**Global Stats:**",
+                                        `Total servers: \`${totalGuilds.toLocaleString()}\``,
+                                        `Total moderations: \`${totalModerated.toLocaleString()}\``,
+                                    ].join("\n"),
+                                },
+                                {
+                                    type: ComponentType.TextDisplay,
+                                    content: "-# Thank you for using [Honeypot Bot](https://honeypot.riskymh.dev) to keep your servers safe from unwanted bots!"
+                                },
+                                {
+                                    type: ComponentType.ActionRow,
+                                    components: [
+                                        {
+                                            type: ComponentType.Button,
+                                            url: `https://discord.com/oauth2/authorize?client_id=${interaction.application_id}`,
+                                            style: ButtonStyle.Link,
+                                            label: "Invite Bot",
+                                            emoji: { name: "honeypot", id: CUSTOM_EMOJI_ID }
+                                        },
+                                        {
+                                            type: ComponentType.Button,
+                                            url: "https://discord.gg/BanFeVWyFP",
+                                            style: ButtonStyle.Link,
+                                            label: "Support Server"
+                                        },
+                                        {
+                                            type: ComponentType.Button,
+                                            url: "https://honeypot.riskymh.dev/#stats",
+                                            style: ButtonStyle.Link,
+                                            label: "Live Stats"
+                                        },
+                                    ]
+                                },
+                            ],
+                        },
+                    ]
+                });
+            }
+
             // into welcome command to allow early deleting
             else if (guildId && interaction.type === InteractionType.MessageComponent && interaction.data.custom_id === "delete_intro_message") {
                 if (!interaction.member?.permissions || !hasPermission(BigInt(interaction.member.permissions), PermissionFlagsBits.ManageMessages)) {

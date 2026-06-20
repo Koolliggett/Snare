@@ -263,12 +263,21 @@ export async function setHoneypotChannels(guild_id: string, channels: { channel_
   });
 }
 
-export async function getStats(): Promise<{ totalGuilds: number; totalModerated: number; }> {
+export async function getStats(): Promise<{ totalGuilds: number | bigint; totalModerated: number | bigint; }> {
   const [result] = await db`SELECT (SELECT COUNT(*) FROM honeypot_config) AS config_count, (SELECT COUNT(*) FROM honeypot_events) AS event_count;`;
   return {
     totalGuilds: result.config_count,
     totalModerated: result.event_count,
   };
+}
+
+
+export async function getGuildStats(guild_id: string): Promise<{ channel_id: string; moderatedCount: number | bigint; }[]> {
+  const rows = await db`SELECT channel_id, COUNT(*) as moderated_count FROM honeypot_events WHERE guild_id = ${guild_id} GROUP BY channel_id`;
+  return rows.map((row: any) => ({
+    channel_id: row.channel_id,
+    moderatedCount: row.moderated_count
+  }));
 }
 
 export async function getUserModeratedCount(user_id: string): Promise<number> {
