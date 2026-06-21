@@ -213,10 +213,10 @@ export async function logModerateEvent(guild_id: string, user_id: string, channe
 export async function getModeratedCount(guild_id: string, channel_id?: string | null): Promise<number> {
   if (channel_id) {
     const [row] = await db`SELECT COUNT(*) as count FROM honeypot_events WHERE guild_id = ${guild_id} AND channel_id = ${channel_id}`;
-    return row.count as number;
+    return Number(row.count);
   } else {
     const [row] = await db`SELECT COUNT(*) as count FROM honeypot_events WHERE guild_id = ${guild_id}`;
-    return row.count as number;
+    return Number(row.count);
   }
 }
 
@@ -263,26 +263,26 @@ export async function setHoneypotChannels(guild_id: string, channels: { channel_
   });
 }
 
-export async function getStats(): Promise<{ totalGuilds: number | bigint; totalModerated: number | bigint; }> {
+export async function getStats(): Promise<{ totalGuilds: number; totalModerated: number; }> {
   const [result] = await db`SELECT (SELECT COUNT(*) FROM honeypot_config) AS config_count, (SELECT COUNT(*) FROM honeypot_events) AS event_count;`;
   return {
-    totalGuilds: result.config_count,
-    totalModerated: result.event_count,
+    totalGuilds: Number(result.config_count),
+    totalModerated: Number(result.event_count),
   };
 }
 
 
-export async function getGuildStats(guild_id: string): Promise<{ channel_id: string; moderatedCount: number | bigint; }[]> {
+export async function getGuildStats(guild_id: string): Promise<{ channel_id: string | null; moderatedCount: number; }[]> {
   const rows = await db`SELECT channel_id, COUNT(*) as moderated_count FROM honeypot_events WHERE guild_id = ${guild_id} GROUP BY channel_id`;
   return rows.map((row: any) => ({
-    channel_id: row.channel_id,
-    moderatedCount: row.moderated_count
+    channel_id: row.channel_id?.toString() || null,
+    moderatedCount: Number(row.moderated_count)
   }));
 }
 
 export async function getUserModeratedCount(user_id: string): Promise<number> {
   const [row] = await db`SELECT COUNT(*) as count FROM honeypot_events WHERE user_id = ${user_id}`;
-  return row.count as number;
+  return Number(row.count);
 }
 
 export async function getGuildsWithExperiment(experiment: HoneypotConfig["experiments"][number]): Promise<HoneypotConfig[]> {

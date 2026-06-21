@@ -835,6 +835,14 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                     db.getStats(),
                 ]);
 
+                const guildStatsMapping: Record<string, number> = {};
+                const channelLessStats = guildStats.find(s => s.channel_id === null)?.moderatedCount;
+                for (const channel of channels) {
+                    const stat = guildStats.find(s => s.channel_id === channel.channel_id);
+                    guildStatsMapping[channel.channel_id] = stat ? stat.moderatedCount : 0;
+                }
+                const totalInGuild = guildStats.reduce((acc, stat) => acc + stat.moderatedCount, 0);
+
                 await api.interactions.reply(interaction.id, interaction.token, {
                     flags: MessageFlags.IsComponentsV2 | MessageFlags.Ephemeral,
                     allowed_mentions: {},
@@ -850,8 +858,11 @@ const handler: EventHandler<GatewayDispatchEvents.InteractionCreate> = {
                                     type: ComponentType.TextDisplay,
                                     content: [
                                         "**Server Stats:**",
-                                        `Total moderated in this server: \`${guildStats.reduce((acc, stat) => acc + Number(stat.moderatedCount), 0).toLocaleString()}\``,
-                                        ...(channels.length === 1 ? "" : channels.map(chan => `- <#${chan.channel_id}>: \`${guildStats.find(s => s.channel_id === chan.channel_id)?.moderatedCount?.toLocaleString() || 0}\``)),
+                                        `Total moderated in this server: \`${totalInGuild.toLocaleString()}\``,
+                                        ...(Object.keys(guildStatsMapping).length === 1 ? ""
+                                            : channels.map(chan => `-# - <#${chan.channel_id}>: \`${guildStatsMapping[chan.channel_id]?.toLocaleString() || 0}\``)),
+                                        channelLessStats && channelLessStats > 0 && guildStats.length > 1
+                                            ? `-# - *Removed honeypots*: \`${channelLessStats.toLocaleString()}\`` : ""
                                     ].join("\n"),
                                 },
                                 {
