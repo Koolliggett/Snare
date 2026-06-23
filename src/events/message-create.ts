@@ -1,4 +1,4 @@
-import { GatewayDispatchEvents, type RESTAPIMessageReference, RESTJSONErrorCodes, type APIMessage, MessageReferenceType } from "discord-api-types/v10";
+import { GatewayDispatchEvents, type RESTAPIMessageReference, RESTJSONErrorCodes, type APIMessage, MessageReferenceType, MessageType } from "discord-api-types/v10";
 import type { EventHandler } from "./events";
 import type { API } from "@discordjs/core";
 import type { API as API2 } from "@discordjs/core/http-only";
@@ -18,7 +18,8 @@ const handler: EventHandler<GatewayDispatchEvents.MessageCreate> = {
                 userId: message.interaction_metadata.user.id,
                 channelId: message.channel_id,
                 guildId: message.guild_id,
-                messageId: message.id
+                messageId: message.id,
+                msgType: message.type
             }, api, db, redis);
         }
 
@@ -28,7 +29,8 @@ const handler: EventHandler<GatewayDispatchEvents.MessageCreate> = {
                 userId: message.author.id,
                 channelId: message.channel_id,
                 guildId: message.guild_id,
-                messageId: message.id
+                messageId: message.id,
+                msgType: message.type
             }, api, db, redis);
         }
 
@@ -46,7 +48,7 @@ const handler: EventHandler<GatewayDispatchEvents.MessageCreate> = {
 };
 
 const onMessage = async (
-    { userId, channelId, guildId, messageId, threadId }: { userId: string, channelId: string, guildId: string, messageId?: string, threadId?: string },
+    { userId, channelId, guildId, messageId, threadId, msgType }: { userId: string, channelId: string, guildId: string, messageId?: string, threadId?: string, msgType?: MessageType },
     api: API | API2,
     db: typeof import("../utils/db"),
     redis?: Bun.RedisClient
@@ -90,26 +92,29 @@ const onMessage = async (
         const preActionAbort = AbortSignal.timeout(3500);
 
         let forwardPromise = null as null | Promise<any>;
-        if (HAS_MESSAGE_INTENT && config.experiments.includes("forward-message") && config.log_channel_id && messageId) {
+        if (HAS_MESSAGE_INTENT && config.experiments.includes("forward-message") && config.log_channel_id && messageId && msgType) {
             // intentionally not awaited as in theory we can do DM and this at same time (and avoid extra wait-time)
-            forwardPromise = api.channels.createMessage(config.log_channel_id, {
-                message_reference: {
-                    type: MessageReferenceType.Forward,
-                    channel_id: channelId,
-                    message_id: messageId,
-                    guild_id: guildId,
-                }
-            }).catch(err => {
-                if (err instanceof DiscordAPIError && (err.code === 160009 /** undocumented error code */)) {
-                    api.channels.createMessage(config.log_channel_id!, {
-                        content: `Would forward https://discord.com/channels/${guildId}/${channelId}/${messageId}, but the bot doesn't have permission to Read Message History in that channel.`,
-                        allowed_mentions: {},
-                    }).catch(err => console.error(styleText("dim", `Failed to send message about missing permissions to log channel: ${err}`)));
-                    console.log(styleText("dim", `Failed to forward message to log channel ${config.action}: ${err}`));
-                } else {
-                    console.log(`Failed to forward message to log channel: ${err}`);
-                }
-            });
+            const forwardableMsgTypes = [MessageType.Default, MessageType.Reply, MessageType.ChatInputCommand, MessageType.ContextMenuCommand];
+            if (forwardableMsgTypes.includes(msgType)) {
+                forwardPromise = api.channels.createMessage(config.log_channel_id, {
+                    message_reference: {
+                        type: MessageReferenceType.Forward,
+                        channel_id: channelId,
+                        message_id: messageId,
+                        guild_id: guildId,
+                    }
+                }).catch(err => {
+                    if (err instanceof DiscordAPIError && (err.code === 160009 /** undocumented error code */)) {
+                        api.channels.createMessage(config.log_channel_id!, {
+                            content: `Would forward https://discord.com/channels/${guildId}/${channelId}/${messageId}, but the bot doesn't have permission to Read Message History in that channel.`,
+                            allowed_mentions: {},
+                        }).catch(err => console.error(styleText("dim", `Failed to send message about missing permissions to forward to log channel: ${err}`)));
+                        console.log(styleText("dim", `Failed to forward message to log channel ${config.action}: ${err}`));
+                    } else {
+                        console.log(`Failed to forward message to log channel: ${err}`);
+                    }
+                });
+            } else {} // maybe handle other ones and say the type or smth
         }
 
         let timeoutPromise = null as null | Promise<any>;
