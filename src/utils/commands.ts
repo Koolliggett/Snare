@@ -3,8 +3,8 @@ import { ApplicationCommandType, ApplicationIntegrationType, InteractionContextT
 export const commandsPayload: RESTPutAPIApplicationCommandsJSONBody = [
     {
         // this command opens a modal for configuring the honeypot
-        name: "honeypot",
-        description: "Configure/setup the honeypot channel and its settings",
+        name: "Snare",
+        description: "Configure/setup the Snare channel and its settings",
         type: ApplicationCommandType.ChatInput,
         options: [],
         default_member_permissions:
@@ -14,8 +14,8 @@ export const commandsPayload: RESTPutAPIApplicationCommandsJSONBody = [
     },
     {
         // this command opens a modal for configuring the messages
-        name: "honeypot-messages",
-        description: "Configure the honeypot messages that the bot sends",
+        name: "Snare-messages",
+        description: "Configure the Snare messages that the bot sends",
         type: ApplicationCommandType.ChatInput,
         options: [],
         default_member_permissions:
@@ -25,7 +25,7 @@ export const commandsPayload: RESTPutAPIApplicationCommandsJSONBody = [
     },
     {
         name: "stats",
-        description: "See statistics for all servers using honeypot",
+        description: "See statistics for all servers using Snare",
         type: ApplicationCommandType.ChatInput,
         options: [],
         contexts: [InteractionContextType.BotDM],
